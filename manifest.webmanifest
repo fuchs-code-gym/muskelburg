@@ -1,0 +1,13 @@
+{
+  "name": "Muskelburg",
+  "short_name": "Muskelburg",
+  "description": "Gym-Training baut dein Dorf aus",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f5efe3",
+  "theme_color": "#9a5b22",
+  "icons": [
+    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+  ]
+}

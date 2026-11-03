@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Muskelburg</title>
+  <meta name="theme-color" content="#9a5b22">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <link rel="apple-touch-icon" href="icon.svg">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <header class="top">
+    <div class="brand">🏰 Muskelburg <i id="sync-dot" title="Online-Verbindung"></i></div>
+    <div class="players" id="players"></div>
+    <div class="resbar" id="resbar"></div>
+  </header>
+
+  <main id="view"></main>
+
+  <nav class="tabs" id="tabs">
+    <button data-act="tab" data-arg="training"><span>💪</span>Training</button>
+    <button data-act="tab" data-arg="dorf"><span>🏰</span>Dorf</button>
+    <button data-act="tab" data-arg="karte"><span>🗺️</span>Karte</button>
+    <button data-act="tab" data-arg="rang"><span>🏆</span>Rangliste</button>
+    <button data-act="tab" data-arg="profil"><span>🏅</span>Profil</button>
+  </nav>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+
+  <script src="app.js"></script>
+  <script type="module" src="sync.js"></script>
+</body>
+</html>
