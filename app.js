@@ -389,9 +389,13 @@ const syncHandlers = {
   },
   player(pid, data, first) {
     if (pid === game.me) {
-      // beim Start: neuerer Stand aus dem Netz (z. B. Handy gewechselt) gewinnt
-      if (first && data && data.updatedAt > (state.players[pid].updatedAt || 0)) state.players[pid] = normalizePlayer(data);
-      else if (first) pushMine();
+      // Dasselbe Dorf auf PC und Handy: der neuere Stand aus dem Netz gewinnt – auch während die App offen ist
+      if (data && data.updatedAt > (state.players[pid].updatedAt || 0)) {
+        state.players[pid] = normalizePlayer(data);
+        try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { /* ignorieren */ }
+        if (!first) toast('🔄 Dein Dorf wurde von deinem anderen Gerät aktualisiert');
+        render();
+      } else if (first) pushMine();
       return;
     }
     state.players[pid] = otherFromRemote(data, pid === 'a' ? 'Spieler 1' : 'Spieler 2');
