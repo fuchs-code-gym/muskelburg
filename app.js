@@ -19,7 +19,19 @@ const ACTIVITIES = [
     gives: { holz: 40, lehm: 30, eisen: 15 }, light: true, perDay: 2 },
   { id: 'milon', name: 'Milon-Zirkel', unit: '1 Durchgang · ca. 10 Min.', icon: '🔁',
     gives: { holz: 100, lehm: 70, eisen: 35 } },
+  // Kurs: zählt als Trainingstag, aber nicht als Milon-Durchgang; danach 24 Std. „Innere Ruhe“
+  { id: 'kurs', name: 'Kurs', unit: 'einmal am Tag · danach 24 Std. Innere Ruhe', icon: '🧘',
+    gives: { holz: 100, lehm: 70, eisen: 35 }, perDay: 1, course: true },
 ];
+const COURSES = [
+  { id: 'yoga', name: 'Yoga', icon: '🧘' },
+  { id: 'pilates', name: 'Pilates', icon: '🤸' },
+  { id: 'ruecken', name: 'Rücken', icon: '🦴' },
+  { id: 'spinning', name: 'Spinning', icon: '🚲' },
+  { id: 'sonstiges', name: 'Sonstiges', icon: '✨' },
+];
+const CALM_H = 24;        // Innere Ruhe: so lange nach einem Kurs …
+const CALM_BONUS = 0.2;   // … +20 % Verteidigung
 
 // Hauptquelle je Rohstoff (für „Was fehlt noch?“)
 const MAIN_SOURCE = { holz: 'milon', lehm: 'milon', eisen: 'milon' };
@@ -108,6 +120,9 @@ const BADGES = [
   { icon: '📅', name: 'Stammgast',       desc: '30 Trainingstage',       test: l => l.days >= 30 },
   { icon: '🔥', name: 'Feuer',           desc: '4 Wochenziele in Folge', test: l => l.bestStreak >= 4 },
   { icon: '☄️', name: 'Unaufhaltsam',    desc: '12 Wochenziele in Folge', test: l => l.bestStreak >= 12 },
+  { icon: '🧘', name: 'Ausgeglichen',    desc: '10 Kurse',               test: l => l.courses >= 10 },
+  { icon: '🌸', name: 'Kursliebhaber',   desc: '25 Kurse',               test: l => l.courses >= 25 },
+  { icon: '🕉️', name: 'Zen-Meister',     desc: '50 Kurse',               test: l => l.courses >= 50 },
   { icon: '⚔️', name: 'Eroberer',        desc: 'ersten Kampf gewonnen',  test: l => l.raidsWon >= 1 },
   { icon: '🗿', name: 'Baumeister',      desc: 'Stahlstatue errichtet',  test: l => l.monuments >= 1 },
   { icon: '🏆', name: 'Champion',        desc: 'eine Saison gewonnen',   test: l => l.seasonsWon >= 1 },
@@ -210,13 +225,14 @@ function newVillage(name) {
     incoming: [],   // Angriffe von Bots auf dieses Dorf
     botSlot: null,  // zuletzt ausgewertetes 12-Stunden-Fenster
     revenge: {},    // Bot → letzter Gegenschlag
-    teamClaimed: {}, credited: false, season: null, resetId: null, updatedAt: 0 };
+    teamClaimed: {}, credited: false, season: null, resetId: null, updatedAt: 0,
+    calmUntil: 0 }; // Innere Ruhe nach einem Kurs
 }
 
 // Lebenslange Werte – überstehen jeden Saison-Neustart
 function newLife() {
   return { rounds: 0, days: 0, weeks: {}, streak: 0, bestStreak: 0, lastGoalWeek: null,
-    raidsWon: 0, monuments: 0, seasonsWon: 0 };
+    raidsWon: 0, monuments: 0, seasonsWon: 0, courses: 0 };
 }
 
 function freshState() {
@@ -679,7 +695,10 @@ function morale(attPts, defPts) {
   return Math.min(1, Math.max(0.5, 0.4 + 0.6 * (defPts + 50) / (attPts + 50)));
 }
 const shielded = (p, t = Date.now()) => p.shieldUntil > t;
-function humanDef(p) { return MILITIA * p.lv.haupthaus + UNITS.reduce((s, u) => s + p.units[u.id] * u.def, 0); }
+const calm = p => p.calmUntil > Date.now();
+function humanDef(p) {
+  return (MILITIA * p.lv.haupthaus + UNITS.reduce((s, u) => s + p.units[u.id] * u.def, 0)) * (calm(p) ? 1 + CALM_BONUS : 1);
+}
 function trimReports(v) { v.reports.length = Math.min(v.reports.length, 30); }
 
 // Verteidigung und mögliche Beute eines Ziels (Rammböcke senken den Wall-Bonus)
@@ -993,7 +1012,7 @@ const tired = v => roundsToday(v) + 1 >= TIRED_FROM;
 // (Aufwärmen: kein Tagesbonus, keine Müdigkeit)
 function gainOf(v, a, bonus) {
   const g = {};
-  const f = (bonus && !a.light ? 1 + DAY_BONUS : 1) * (1 + rankBonus(v)) * (1 + catchUp(v)) * (tired(v) && !a.light ? 1 - TIRED_MALUS : 1);
+  const f = (bonus && !a.light ? 1 + DAY_BONUS : 1) * (1 + rankBonus(v)) * (1 + catchUp(v)) * (tired(v) && a.id === 'milon' ? 1 - TIRED_MALUS : 1);
   for (const r in a.gives) g[r] = Math.round(a.gives[r] * mult(v, r) * f);
   return g;
 }
@@ -1010,16 +1029,23 @@ function addRes(v, amounts) {
   return { got, capped };
 }
 
-function train(actId) {
+function train(arg) {
+  const [actId, course] = arg.split(':'); // z. B. „kurs:yoga“
   const v = me();
   const L = v.life;
   const a = byId(ACTIVITIES, actId);
   if (a.perDay && doneToday(v, a.id) >= a.perDay) return;
-  const bonus = !a.light && v.lastDay !== todayStr(); // Tagesbonus gibt's auf den ersten Durchgang
+  const bonus = !a.light && v.lastDay !== todayStr(); // Tagesbonus gibt's auf das erste richtige Training
   const rankBefore = rankOf(L);
   const badgesBefore = earnedBadges(L).length;
   const { got, capped } = addRes(v, gainOf(v, a, bonus));
   const entry = { t: Date.now(), kind: 'train', id: actId, got, bonus, prevDay: v.lastDay, wk: weekKey() };
+  if (a.course) {
+    entry.course = course || 'sonstiges';
+    entry.prevCalm = v.calmUntil;
+    v.calmUntil = Date.now() + CALM_H * H_MS;
+    L.courses++;
+  }
 
   // Training ist der Turbo für alle Baustellen (Aufwärmen: −10 Min.)
   if (v.queue.length) {
@@ -1034,7 +1060,7 @@ function train(actId) {
   }
 
   // Lebenslange Werte & Wochenziel (nur Milon-Durchgänge zählen für Rang und Trainingstage)
-  if (!a.light) { L.rounds++; v.rounds++; }
+  if (a.id === 'milon') { L.rounds++; v.rounds++; }
   if (bonus) {
     L.days++;
     L.weeks[entry.wk] = (L.weeks[entry.wk] || 0) + 1;
@@ -1061,6 +1087,7 @@ function train(actId) {
   toast(`${a.icon} ${fmtRes(got, '+')}${bonus ? ' · Tagesbonus!' : ''}${capped ? ' · Speicher voll!' : ''}`);
   if (entry.sped) toast(`⚡ Baustelle ${fmtDur(Math.max(...Object.values(entry.sped)))} schneller!`);
   if (entry.chest) toast(`🎁 Wochenziel geschafft! Truhe: ${fmtRes(entry.chest.loot, '+')}`, true);
+  if (a.course) toast(`🕊️ Innere Ruhe: ${CALM_H} Std. +${CALM_BONUS * 100} % Verteidigung`, true);
   const rank = rankOf(L);
   if (rank !== rankBefore) toast(`${rank.icon} Neuer Rang: ${rank.name} – für immer +${Math.round(rank.bonus * 100)} % Rohstoffe!`, true);
   const badges = earnedBadges(L);
@@ -1179,9 +1206,13 @@ function undo() {
     v.lastDay = e.prevDay;
     if (typeof e.sped === 'number' && v.queue[0]) v.queue[0].end += e.sped; // alte Einträge
     else for (const id in e.sped || {}) { const q = inBuild(v, id); if (q) q.end += e.sped[id]; }
-    if (!byId(ACTIVITIES, e.id).light) {
+    if (e.id === 'milon') {
       L.rounds = Math.max(0, L.rounds - 1);
       v.rounds = Math.max(0, v.rounds - 1);
+    }
+    if (e.course) {
+      L.courses = Math.max(0, L.courses - 1);
+      v.calmUntil = e.prevCalm || 0;
     }
     if (e.bonus && e.wk) { L.days = Math.max(0, L.days - 1); L.weeks[e.wk] = Math.max(0, (L.weeks[e.wk] || 1) - 1); }
     if (e.chest) {
@@ -1299,6 +1330,7 @@ function viewTraining() {
     <section class="banner ${bonus ? 'sun' : 'done'}">
       ${bonus ? '☀️ <b>Erstes Training heute:</b> +50 % auf den nächsten Eintrag!' : '✅ Heute schon trainiert – stark!'}
     </section>
+    ${calm(v) ? `<section class="banner calm">🕊️ <b>Innere Ruhe:</b> +${CALM_BONUS * 100} % Verteidigung, noch <b data-eta="${v.calmUntil}">${fmtDur(v.calmUntil - Date.now())}</b></section>` : ''}
     ${cu ? `<section class="banner catchup">🚀 <b>Aufhol-Bonus +${Math.round(cu * 100)} %</b> – du liegst hinten, jeder Durchgang bringt dir mehr.</section>` : ''}
     ${tired(v) ? `<section class="banner tired">😮‍💨 <b>${roundsToday(v) + 1}. Durchgang heute:</b> −${TIRED_MALUS * 100} % – Erholung zählt auch! Morgen gibt's wieder den vollen Ertrag.</section>` : ''}
     ${v.queue.map(q => queueCard(v, q)).join('')}
@@ -1321,6 +1353,16 @@ function viewTraining() {
     <div class="acts">${ACTIVITIES.map(a => {
       const done = doneToday(v, a.id);
       const full = a.perDay && done >= a.perDay;
+      if (a.course) return `
+      <div class="act main course ${full ? 'is-done' : ''}">
+        <span class="act-icon">${a.icon}</span>
+        <span class="act-name">${a.name} <small>${done}/${a.perDay} heute</small></span>
+        <span class="act-unit">${a.unit}</span>
+        <span class="act-gain">${full ? 'für heute geschafft ✓' : fmtRes(gainOf(v, a, bonus), '+')}</span>
+        ${full ? '' : `<span class="act-unit">Welcher Kurs?</span>
+        <div class="course-chips">${COURSES.map(c => `
+          <button class="chip-btn" data-act="train" data-arg="kurs:${c.id}">${c.icon} ${c.name}</button>`).join('')}</div>`}
+      </div>`;
       return `
       <button class="act ${a.light ? 'light' : 'main'}" data-act="train" data-arg="${a.id}" ${full ? 'disabled' : ''}>
         <span class="act-icon">${a.icon}</span>
@@ -1330,7 +1372,7 @@ function viewTraining() {
         ${v.queue.length && !full ? `<span class="act-boost">⚡ ${a.light ? `Baustelle −${TRAIN_SPEEDUP_MIN} Min.` : 'halbiert die Restbauzeit'}</span>` : ''}
       </button>`;
     }).join('')}</div>
-    <p class="hint">Nach jedem Durchgang einmal tippen. Aufwärmen zählt bis zu 2× am Tag, aber nicht als Milon-Durchgang. Vertippt? Unter „Profil“ lässt sich der letzte Eintrag zurücknehmen.</p>`;
+    <p class="hint">Nach jedem Durchgang einmal tippen. Aufwärmen (bis 2× am Tag) und Kurse (1× am Tag) zählen nicht als Milon-Durchgang – ein Kurs zählt aber als Trainingstag für die Truhen. Vertippt? Unter „Profil“ lässt sich der letzte Eintrag zurücknehmen.</p>`;
 }
 
 // Laufende Baustelle mit Countdown und Fortschrittsbalken
@@ -1803,6 +1845,7 @@ function viewProfil() {
     <div class="stats">
       <div><b>${num(L.rounds)}</b><small>Durchgänge</small></div>
       <div><b>${num(L.days)}</b><small>Trainingstage</small></div>
+      <div><b>${num(L.courses)}</b><small>Kurse</small></div>
       <div><b>${L.bestStreak}</b><small>beste Serie</small></div>
     </div>
 
@@ -1850,7 +1893,8 @@ function viewVerlauf(v) {
   const line = e => {
     if (e.kind === 'train') {
       const a = byId(ACTIVITIES, e.id);
-      return `${a.icon} ${a.name} <span class="muted">${fmtRes(e.got, '+')}${e.bonus ? ' ☀️' : ''}</span>`;
+      const c = e.course && byId(COURSES, e.course);
+      return `${c ? c.icon : a.icon} ${c ? `Kurs: ${c.name}` : a.name} <span class="muted">${fmtRes(e.got, '+')}${e.bonus ? ' ☀️' : ''}</span>`;
     }
     if (e.kind === 'recruit') { const u = byId(UNITS, e.id); return `${u.icon} ${e.n}× ${u.name} ausgebildet`; }
     if (e.kind === 'autorecruit') { const u = byId(UNITS, e.id); return `⚙️ ${e.n}× ${u.name} automatisch ausgebildet`; }

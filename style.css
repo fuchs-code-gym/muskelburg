@@ -128,7 +128,17 @@ h2 small { font-weight: 400; font-size: 13px; }
 .act:only-child .act-name, .act.main .act-name { font-size: 19px; }
 .act.light { grid-column: 1 / -1; align-items: center; text-align: center; padding: 12px; }
 .act-name small { font-weight: 600; color: var(--muted); font-size: 12px; }
-.act:disabled { opacity: .55; }
+.act:disabled, .act.is-done { opacity: .55; }
+.act.course { cursor: default; }
+.act.course:active { transform: none; background: var(--surface); }
+.course-chips { display: flex; flex-wrap: wrap; justify-content: center; gap: 8px; margin-top: 8px; }
+.chip-btn {
+  padding: 9px 13px; border-radius: 999px; border: 1px solid var(--line); background: var(--surface-2);
+  color: var(--text); font: inherit; font-size: 14px; font-weight: 600; cursor: pointer;
+}
+.chip-btn:active { transform: scale(.96); background: var(--accent); color: var(--accent-text); }
+.stats:has(> div:nth-child(4)) { grid-template-columns: repeat(4, 1fr); }
+.banner.calm { background: color-mix(in srgb, var(--good) 14%, var(--surface)); }
 .act:active { transform: scale(.97); background: var(--surface-2); }
 .act-icon { font-size: 28px; }
 .act-name { font-weight: 700; }
