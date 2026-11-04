@@ -318,6 +318,10 @@ function inviteLink() { return `${location.origin}${location.pathname}#jagd=${ga
 const setupName = () => (document.getElementById('setup-name').value || '').trim().slice(0, 20);
 let setupStep = null, joinInfo = null;
 let joinId = (location.hash.match(/jagd=([a-z0-9]+)/) || [])[1] || null;
+// Spielanleitung: beim allerersten Start automatisch zeigen
+const INTRO_KEY = 'hantelhelden-intro-v1' + DEVICE;
+let introPage = null;
+try { if (!localStorage.getItem(INTRO_KEY)) introPage = 0; } catch (e) { introPage = 0; }
 if (joinId && game && game.id === joinId) { joinId = null; history.replaceState(null, '', location.pathname + location.search); }
 
 async function createGame() {
@@ -865,6 +869,10 @@ const actions = {
   setdefault: arg => { const [i, t] = arg.split(':'); me().tactics[Number(i)] = t; save(); render(); },
   create: createGame, join: joinGame, local: playLocal, share: shareInvite, leave: leaveGame,
   setupdone: () => { setupStep = null; render(); },
+  intro: () => { introPage = 0; render(); window.scrollTo(0, 0); },
+  intronext: () => { introPage = Math.min(INTRO.length - 1, introPage + 1); render(); window.scrollTo(0, 0); },
+  introprev: () => { introPage = Math.max(0, introPage - 1); render(); window.scrollTo(0, 0); },
+  introdone: () => { introPage = null; try { localStorage.setItem(INTRO_KEY, '1'); } catch (e) { /* ignorieren */ } render(); window.scrollTo(0, 0); },
   tab: t => { tab = t; render(); window.scrollTo(0, 0); },
   player: id => { if (online()) return; state.current = id; duelOpen = false; save(); render(); },
 };
@@ -1334,6 +1342,7 @@ function viewProfil() {
 
     <h2>Einstellungen</h2>
     <div class="card list">
+      <div class="row"><span>📖 So funktioniert's</span><button class="btn small" data-act="intro">Anleitung</button></div>
       ${ownIds().map(id => `<div class="row"><span>🧑 ${esc(state.players[id].name)}</span><button class="btn small" data-act="rename" data-arg="${id}">Umbenennen</button></div>`).join('')}
       ${online() ? `
         <div class="row"><span>${connected ? '🟢 Online verbunden' : '🟠 Gerade offline – wird nachgeholt'}</span></div>
@@ -1377,6 +1386,56 @@ function viewSetup() {
       <button class="btn primary big" data-act="create">Jagd starten</button>
       <p class="hint">Du hast einen Einladungslink bekommen? Dann öffne einfach den Link.</p>
       <button class="btn ghost" data-act="local">Nur auf diesem Gerät ausprobieren</button>
+      <button class="btn small ghost" data-act="intro">📖 So funktioniert's</button>
+    </section>`;
+}
+
+/* ---------- Spielanleitung (wird beim ersten Start vorgeschaltet) ---------- */
+
+const INTRO = [
+  { pic: () => bossSvg(1, 1), title: 'Euer Gegner: der innere Schweinehund',
+    body: `<p>Er liegt auf dem Sofa, futtert Chips und lacht euch aus. Ihr seid zu zweit – und ihr jagt ihn <b>gemeinsam</b>.</p>
+      <ul class="intro-list">
+        <li>🎯 <b>Ziel:</b> ${BOSS_HP.toLocaleString('de-DE')} Lebenspunkte in <b>${SEASON_DAYS / 7} Wochen</b> runterprügeln.</li>
+        <li>😴 An jedem Tag, an dem <b>keiner</b> trainiert, heilt er sich um ${BOSS_REGEN}.</li>
+        <li>🏆 Geschafft? Dann kommt Kapitel 2 – mit einem stärkeren Schweinehund.</li>
+      </ul>` },
+  { pic: () => '<div class="intro-icon">👊</div>', title: 'Jedes Training ist ein Treffer',
+    body: `<ol class="intro-steps">
+        <li>Nach dem Gym im Tab <b>🐷 Jagd</b> antippen, was du gemacht hast: Milon, Freies Training, Rad/Crosstrainer, Kurs oder Dehnen.</li>
+        <li><b>Zuschlagen:</b> Ein Balken pendelt – triff die Mitte für bis zu +30 % Schaden. Oder ohne Minispiel eintragen.</li>
+        <li>Der Schweinehund steckt ein, seine Lebensleiste sinkt.</li>
+      </ol>
+      <p class="hint">Mehr Schaden gibt es für: 🏆 neuen Rekord (Gewicht gesteigert, 1× am Tag), 🔥 regelmäßiges Training (Combo), 🥗 gesund gelebt, 📣 Anfeuern vom Partner.</p>` },
+  { pic: () => '<div class="intro-icon">🎁</div>', title: 'Beute & dein Held',
+    body: `<ul class="intro-list">
+        <li>🔐 Nach jedem Training öffnet sich dein <b>Spind</b> mit zufälliger Ausrüstung – von gewöhnlich bis <b style="color:#f5b81c">legendär</b>.</li>
+        <li>🦾 Im Tab <b>Held</b> legst du sie an. Sie macht dich stärker.</li>
+        <li>💪 Training steigert Kraft, Ausdauer und Geist und schaltet <b>Talente</b> frei.</li>
+        <li>👹 Jede Woche taucht ein <b>Ausreden-Monster</b> auf – wer es erledigt, bekommt epische Beute.</li>
+      </ul>` },
+  { pic: () => '<div class="intro-icon">🥊</div>', title: 'Sparring & Saison',
+    body: `<ul class="intro-list">
+        <li>🥊 <b>Sparring:</b> Fordere deinen Partner heraus. Wähle 3 Taktiken – 🏃 schlägt 💥, 🥷 schlägt 🏃, 💥 schlägt 🥷. Er hat ${CHALLENGE_H} Stunden zum Antworten.</li>
+        <li>⚡ Die Energie dafür bekommst du durchs Training.</li>
+        <li>👑 Wer pro Woche mehr Schaden macht, bekommt die <b>MVP-Krone</b>.</li>
+        <li>🎁 Optional: Legt einen <b>Pakt</b> fest – eure echte Belohnung, wenn er fällt.</li>
+      </ul>
+      <p class="hint">Diese Anleitung findest du jederzeit wieder unter 🏅 Profil.</p>` },
+];
+
+function viewIntro() {
+  const i = introPage, pg = INTRO[i], last = i === INTRO.length - 1;
+  return `<section class="card setup intro">
+      <div class="intro-pic">${pg.pic()}</div>
+      <div class="eyebrow">So funktioniert's · ${i + 1} / ${INTRO.length}</div>
+      <h2>${pg.title}</h2>
+      <div class="intro-body">${pg.body}</div>
+      <div class="intro-dots">${INTRO.map((_, k) => `<i class="${k === i ? 'on' : ''}"></i>`).join('')}</div>
+      <div class="intro-nav">
+        ${i > 0 ? '<button class="btn" data-act="introprev">← Zurück</button>' : '<button class="btn ghost" data-act="introdone">Überspringen</button>'}
+        <button class="btn primary" data-act="${last ? 'introdone' : 'intronext'}">${last ? "Los geht's 💪" : 'Weiter →'}</button>
+      </div>
     </section>`;
 }
 
@@ -1384,7 +1443,12 @@ const VIEWS = { jagd: viewJagd, held: viewHeld, sparring: viewSparring, saison: 
 
 function render() {
   const setup = !game || joinId || setupStep;
-  document.body.classList.toggle('setup-mode', !!setup);
+  document.body.classList.toggle('setup-mode', !!setup || introPage !== null);
+  if (introPage !== null) {
+    document.getElementById('view').innerHTML = viewIntro();
+    document.getElementById('overlay').innerHTML = '';
+    return;
+  }
   if (setup) {
     const typed = document.getElementById('setup-name');
     const name = typed ? typed.value : '';

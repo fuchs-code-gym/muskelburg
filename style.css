@@ -422,3 +422,22 @@ body.ov-open { overflow: hidden; }
 .season-over.lost { border-color: var(--bad); }
 .setup .boss { max-width: 260px; }
 .bosscard .boss { max-width: 240px; }
+
+/* ---------- Spielanleitung ---------- */
+.intro { gap: 10px; text-align: left; }
+.intro h2, .intro .eyebrow { text-align: center; }
+.intro-pic { display: flex; justify-content: center; }
+.intro-pic .boss { max-width: 220px; }
+.intro-icon { font-size: 64px; line-height: 1; padding: 8px 0; }
+.intro-body { font-size: 15px; line-height: 1.45; }
+.intro-body p { margin: 0 0 8px; }
+.intro-list, .intro-steps { margin: 0 0 8px; padding: 0; list-style: none; display: flex; flex-direction: column; gap: 8px; }
+.intro-list li { background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px; padding: 9px 11px; }
+.intro-steps { counter-reset: st; }
+.intro-steps li { counter-increment: st; position: relative; padding: 9px 11px 9px 44px; background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px; }
+.intro-steps li::before { content: counter(st); position: absolute; left: 10px; top: 9px; width: 24px; height: 24px; border-radius: 50%;
+  background: var(--accent); color: #fff; font-weight: 900; display: grid; place-items: center; font-size: 13px; }
+.intro-dots { display: flex; justify-content: center; gap: 7px; margin-top: 4px; }
+.intro-dots i { width: 8px; height: 8px; border-radius: 50%; background: var(--line); }
+.intro-dots i.on { background: var(--accent); width: 22px; border-radius: 4px; }
+.intro-nav { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
