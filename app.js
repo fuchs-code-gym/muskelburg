@@ -15,18 +15,18 @@ const BASE_STAT = 10;
 
 // Taktiken wie Schere-Stein-Papier: jede schlägt eine andere, jede nutzt einen anderen Wert
 const TACTICS = {
-  A: { name: 'Auf Distanz', icon: '🏹', stat: 'end',  beats: 'C' },
-  B: { name: 'Hinterhalt',  icon: '🪤', stat: 'mind', beats: 'A' },
-  C: { name: 'Ansturm',     icon: '🐗', stat: 'str',  beats: 'B' },
+  A: { name: 'Auf Distanz', icon: '🏃', stat: 'end',  beats: 'C' },
+  B: { name: 'Hinterhalt',  icon: '🥷', stat: 'mind', beats: 'A' },
+  C: { name: 'Ansturm',     icon: '💥', stat: 'str',  beats: 'B' },
 };
 const T_WIN = 1.5, T_LOSE = 0.7; // Taktik schlägt / wird geschlagen
 const FLAVOR = {
-  AC: 'weicht dem Ansturm aus und trifft aus der Ferne',
-  CB: 'stürmt durch den Hinterhalt, bevor die Falle zuschnappt',
-  BA: 'lockt den Fernkämpfer in die Falle',
-  AA: 'Fernduell – die bessere Ausdauer entscheidet',
-  BB: 'beide lauern – der klügere Kopf gewinnt',
-  CC: 'Kopf an Kopf – rohe Kraft entscheidet',
+  AC: 'tänzelt dem Ansturm aus und kontert aus der Bewegung',
+  CB: 'stürmt durch die Finte, bevor sie wirkt',
+  BA: 'lockt den Läufer mit einer Finte in die Ecke',
+  AA: 'Ausdauerduell – wer länger durchhält, gewinnt',
+  BB: 'Taktik gegen Taktik – der klügere Kopf gewinnt',
+  CC: 'Schlagabtausch – rohe Kraft entscheidet',
 };
 
 // Training: gives = Wertepunkte, perDay = höchstens so oft am Tag, heals = heilt eine Verletzung
@@ -68,23 +68,25 @@ const TEAM_GOAL_DAYS = 5;
 const TEAM_CHEST = 60;       // Taler für beide, dazu 1 ⚡
 
 // Ausrüstung: Freischalten durch Training, dann mit Taler kaufen. bonus gilt je Taktik (all = alle)
-const SLOTS = { weapon: 'Waffe', armor: 'Rüstung', trinket: 'Talisman' };
+// Fair verteilt: jede Taktik hat ein Einsteiger- (+4) und ein Profi-Gerät (+10). Die Freischalt-Zahlen sind so gewählt,
+// dass jeder Weg etwa gleich viel Trainingszeit braucht (Cardio-Einheiten sind kürzer und häufiger → höhere Zahl).
+const SLOTS = { weapon: 'Kampfgerät', armor: 'Outfit', trinket: 'Gadget' };
 const ITEMS = [
-  { id: 'schwert',  slot: 'weapon',  icon: '⚔️', name: 'Eisenschwert',     cost: 60,  bonus: { C: 4 },  need: { what: 'kraft', n: 10 } },
-  { id: 'kurzbogen', slot: 'weapon', icon: '🏹', name: 'Kurzbogen',        cost: 60,  bonus: { A: 4 },  need: { what: 'cardio', n: 10 } },
-  { id: 'netz',     slot: 'weapon',  icon: '🕸️', name: 'Fangnetz',         cost: 60,  bonus: { B: 4 },  need: { what: 'geist', n: 6 } },
-  { id: 'axt',      slot: 'weapon',  icon: '🪓', name: 'Kriegsaxt',        cost: 200, bonus: { C: 10 }, need: { what: 'kraft', n: 40 } },
-  { id: 'langbogen', slot: 'weapon', icon: '🎯', name: 'Langbogen',        cost: 200, bonus: { A: 10 }, need: { what: 'cardio', n: 40 } },
-  { id: 'dolch',    slot: 'weapon',  icon: '🗡️', name: 'Schattendolch',    cost: 200, bonus: { B: 10 }, need: { what: 'geist', n: 25 } },
-  { id: 'wams',     slot: 'armor',   icon: '🧥', name: 'Lederwams',        cost: 50,  bonus: { all: 2 }, need: { what: 'days', n: 5 } },
-  { id: 'kette',    slot: 'armor',   icon: '⛓️', name: 'Kettenhemd',       cost: 150, bonus: { all: 5 }, need: { what: 'days', n: 20 } },
-  { id: 'drache',   slot: 'armor',   icon: '🐉', name: 'Drachenpanzer',    cost: 300, bonus: { all: 9 }, need: { what: 'boss', n: 3 } },
-  { id: 'weitsicht', slot: 'trinket', icon: '🔮', name: 'Amulett der Weitsicht', cost: 80, bonus: { B: 2 }, reveal: true, need: { what: 'geist', n: 5 },
-    desc: 'zeigt vor dem Kampf die Ausrüstung und Lieblingstaktik des Gegners' },
-  { id: 'klee',     slot: 'trinket', icon: '🍀', name: 'Glücksklee',       cost: 100, bonus: {}, luck: 0.1, need: { what: 'weeks', n: 3 },
+  { id: 'boxhandschuhe', slot: 'weapon', icon: '🥊', name: 'Boxhandschuhe', cost: 60,  bonus: { C: 4 },  need: { what: 'kraft', n: 10 } },
+  { id: 'springseil',   slot: 'weapon', icon: '🪢', name: 'Speed-Springseil', cost: 60, bonus: { A: 4 }, need: { what: 'cardio', n: 15 } },
+  { id: 'kopfhoerer',   slot: 'weapon', icon: '🎧', name: 'Fokus-Kopfhörer', cost: 60, bonus: { B: 4 },  need: { what: 'geist', n: 6 } },
+  { id: 'medizinball',  slot: 'weapon', icon: '🏐', name: 'Medizinball',    cost: 200, bonus: { C: 10 }, need: { what: 'kraft', n: 40 } },
+  { id: 'laufschuhe',   slot: 'weapon', icon: '👟', name: 'Carbon-Laufschuhe', cost: 200, bonus: { A: 10 }, need: { what: 'cardio', n: 60 } },
+  { id: 'tablet',       slot: 'weapon', icon: '📱', name: 'Analyse-Tablet', cost: 200, bonus: { B: 10 }, need: { what: 'geist', n: 25 } },
+  { id: 'shirt',        slot: 'armor',  icon: '👕', name: 'Funktionsshirt', cost: 50,  bonus: { all: 2 }, need: { what: 'days', n: 5 } },
+  { id: 'kompression',  slot: 'armor',  icon: '🦺', name: 'Kompressionsanzug', cost: 150, bonus: { all: 5 }, need: { what: 'days', n: 20 } },
+  { id: 'champion',     slot: 'armor',  icon: '🥋', name: 'Champion-Kampfanzug', cost: 300, bonus: { all: 9 }, need: { what: 'boss', n: 3 } },
+  { id: 'smartwatch',   slot: 'trinket', icon: '⌚', name: 'Smartwatch mit Gegner-Scan', cost: 100, bonus: {}, reveal: true, need: { what: 'geist', n: 5 },
+    desc: 'zeigt vor dem Kampf Ausrüstung und Lieblingstaktik des Gegners' },
+  { id: 'cap',          slot: 'trinket', icon: '🧢', name: 'Glücks-Cap',     cost: 100, bonus: {}, luck: 0.1, need: { what: 'weeks', n: 3 },
     desc: 'mehr Glück: nie wieder ein ganz schlechter Wurf' },
-  { id: 'herz',     slot: 'trinket', icon: '❤️‍🔥', name: 'Herz des Kämpfers', cost: 120, bonus: { all: 3 }, need: { what: 'wins', n: 10 } },
-  { id: 'sonne',    slot: 'trinket', icon: '🌞', name: 'Sonnenstein',      cost: 250, bonus: { all: 6 }, need: { what: 'days', n: 30 } },
+  { id: 'shake',        slot: 'trinket', icon: '🥤', name: 'Protein-Shaker', cost: 120, bonus: { all: 3 }, need: { what: 'wins', n: 10 } },
+  { id: 'medaille',     slot: 'trinket', icon: '🏅', name: 'Siegermedaille', cost: 250, bonus: { all: 6 }, need: { what: 'days', n: 30 } },
 ];
 const NEEDS = {
   kraft:  { label: 'Milon- oder Kraft-Einheiten', count: p => p.counts.milon + p.counts.frei },
@@ -98,9 +100,9 @@ const NEEDS = {
 
 // Ränge nach Trainingseinheiten insgesamt – bleiben für immer
 const RANKS = [
-  { min: 0, icon: '🔰', name: 'Rekrut' }, { min: 15, icon: '🥉', name: 'Knappe' }, { min: 40, icon: '🥈', name: 'Krieger' },
-  { min: 80, icon: '🥇', name: 'Eisenkrieger' }, { min: 150, icon: '💎', name: 'Ritter' },
-  { min: 300, icon: '🏆', name: 'Stählerner Ritter' }, { min: 500, icon: '👑', name: 'Legende aus Stahl' },
+  { min: 0, icon: '🔰', name: 'Einsteiger' }, { min: 15, icon: '🥉', name: 'Fortgeschritten' }, { min: 40, icon: '🥈', name: 'Athlet' },
+  { min: 80, icon: '🥇', name: 'Eisenathlet' }, { min: 150, icon: '💎', name: 'Profi' },
+  { min: 300, icon: '🏆', name: 'Stahlkörper' }, { min: 500, icon: '👑', name: 'Legende aus Stahl' },
 ];
 
 const BADGES = [
@@ -124,17 +126,17 @@ const BOTS = [
   { id: 'fritz',  name: 'Faulpelz Fritz',  icon: '🦥', base: [14, 11, 15], grow: 0.2,  w: [1, 3, 1], ruhm: 940,  info: 'lauert lieber, statt zu laufen' },
   { id: 'hanno',  name: 'Hasenfuß Hanno',  icon: '🐰', base: [12, 20, 13], grow: 0.3,  w: [4, 1, 1], ruhm: 1000, info: 'hält immer Abstand' },
   { id: 'frieda', name: 'Fleißige Frieda', icon: '🐝', base: [19, 19, 19], grow: 0.45, w: [1, 1, 1], ruhm: 1060, info: 'ausgeglichen und zäh' },
-  { id: 'rudi',   name: 'Raubritter Rudi', icon: '🦊', base: [27, 17, 21], grow: 0.55, w: [1, 1, 3], ruhm: 1120, info: 'stürmt am liebsten los' },
+  { id: 'rudi',   name: 'Raufbold Rudi', icon: '🦊', base: [27, 17, 21], grow: 0.55, w: [1, 1, 3], ruhm: 1120, info: 'stürmt am liebsten los' },
   { id: 'gisela', name: 'Weise Gisela',    icon: '🦉', base: [17, 20, 31], grow: 0.6,  w: [1, 3, 1], ruhm: 1180, info: 'Meisterin des Hinterhalts' },
   { id: 'olaf',   name: 'Olaf der Bär',    icon: '🐻', base: [37, 21, 15], grow: 0.75, w: [1, 1, 4], ruhm: 1240, info: 'pure Kraft' },
   { id: 'lotte',  name: 'Lotte Langarm',   icon: '🐙', base: [21, 35, 23], grow: 0.75, w: [3, 1, 1], ruhm: 1300, info: 'trifft aus jeder Entfernung' },
-  { id: 'horst',  name: 'Wolfs-Horst',     icon: '🐺', base: [44, 40, 40], grow: 0.9,  w: [1, 1, 1], ruhm: 1400, info: 'der gefährlichste Kämpfer der Arena' },
+  { id: 'horst',  name: 'Wolfs-Horst',     icon: '🐺', base: [44, 40, 40], grow: 0.9,  w: [1, 1, 1], ruhm: 1400, info: 'der gefährlichste Kämpfer im Gym' },
 ];
 // Wochenbosse: wechseln jede Woche, wachsen mit dem stärkeren Helden mit
 const BOSSES = [
-  { id: 'golem',  name: 'Steingolem',     icon: '🗿', base: [60, 30, 30], w: [1, 1, 3], info: 'langsam, aber unglaublich stark' },
-  { id: 'drache', name: 'Rauchdrache',    icon: '🐉', base: [40, 55, 35], w: [3, 1, 1], info: 'speit Feuer aus der Ferne' },
-  { id: 'koenig', name: 'Der Arenakönig', icon: '👑', base: [45, 45, 50], w: [1, 2, 1], info: 'listig und erfahren' },
+  { id: 'golem',  name: 'Der Bodybuilder',     icon: '🦍', base: [60, 30, 30], w: [1, 1, 3], info: 'langsam, aber unglaublich stark' },
+  { id: 'drache', name: 'Die Marathon-Maschine', icon: '🤖', base: [40, 55, 35], w: [3, 1, 1], info: 'wird einfach nie müde' },
+  { id: 'koenig', name: 'Der Großmeister',     icon: '🥋', base: [45, 45, 50], w: [1, 2, 1], info: 'listig und erfahren' },
 ];
 const BOSS_REWARD = 100;
 
@@ -482,7 +484,7 @@ function fighterOf(p) {
     reveal = reveal || !!it.reveal;
   }
   return {
-    name: p.name, icon: '🦸', level: levelOf(p), stats: { ...p.stats }, bonus, luck, reveal,
+    name: p.name, icon: '🤼', level: levelOf(p), stats: { ...p.stats }, bonus, luck, reveal,
     exp: Math.min(EXP_MAX, p.life.fights * EXP_PER_FIGHT), wounds: p.wounds, ruhm: p.ruhm,
     items: equipped(p).map(i => i.id), favorite: p.tactics[0],
   };
@@ -574,7 +576,7 @@ function finishHumanDuel(p, res) {
   const o = p.outgoing.find(x => x.id === res.id);
   if (!o) return;
   p.outgoing = p.outgoing.filter(x => x !== o);
-  const r = bookFight(p, { win: res.attWin, opp: { name: res.defName, icon: '🦸' }, rounds: res.rounds, mineAtt: true,
+  const r = bookFight(p, { win: res.attWin, opp: { name: res.defName, icon: '🤼' }, rounds: res.rounds, mineAtt: true,
     delta: res.delta, kind: 'human', taler: res.attWin ? 25 : 5 });
   if (res.auto) r.auto = true;
   if (p === me()) { freshReport = r.id; toast(res.attWin ? `🏆 Duell gegen ${res.defName} gewonnen!` : `💀 Duell gegen ${res.defName} verloren`, true); }
@@ -821,7 +823,7 @@ function answerChallenge() {
   const res = resolveDuel(d, p, [...duelPick], false);
   duelPick = [];
   p.incoming = p.incoming.filter(x => x !== d);
-  const r = bookFight(p, { win: !res.attWin, opp: { name: d.fromName, icon: '🦸' }, rounds: res.rounds, mineAtt: false,
+  const r = bookFight(p, { win: !res.attWin, opp: { name: d.fromName, icon: '🤼' }, rounds: res.rounds, mineAtt: false,
     delta: res.delta, kind: 'human', taler: res.attWin ? 5 : 25 });
   freshReport = r.id;
   sendEvent(d.from, { kind: 'result', result: res });
@@ -835,7 +837,7 @@ function finishDefense(p, res) {
   const d = p.incoming.find(x => x.id === res.id);
   if (!d) return;
   p.incoming = p.incoming.filter(x => x !== d);
-  const r = bookFight(p, { win: !res.attWin, opp: { name: res.attName, icon: '🦸' }, rounds: res.rounds, mineAtt: false,
+  const r = bookFight(p, { win: !res.attWin, opp: { name: res.attName, icon: '🤼' }, rounds: res.rounds, mineAtt: false,
     delta: res.delta, kind: 'human', taler: res.attWin ? 5 : 25 });
   r.auto = true;
   if (p === me()) toast(`⏰ Duell gegen ${res.attName} automatisch ausgetragen – ${res.attWin ? 'verloren' : 'gewonnen!'}`, true);
@@ -948,39 +950,49 @@ function renderHeader() {
 
 /* ---------- Held als Zeichnung ---------- */
 
-function heroSvg(p, big = false) {
+function heroSvg(p, size = "") {
   const lvl = levelOf(p);
   const st = p.stats;
   const sh = Math.min(15, 9 + (st.str - BASE_STAT) / 12); // Schulterbreite wächst mit der Stärke
   const weapon = itemOf(p.equip.weapon), armor = itemOf(p.equip.armor), trinket = itemOf(p.equip.trinket);
-  const cape = lvl >= 15 ? '#7b2d8e' : lvl >= 8 ? '#b23b2a' : lvl >= 4 ? '#3a6ea5' : '#7a6a58';
-  const body = armor ? { wams: '#8a5a2b', kette: '#8e959c', drache: '#2f7d5b' }[armor.id] : '#ff5a1f';
+  // Shorts-Farbe zeigt die Level-Stufe
+  const shorts = lvl >= 15 ? '#7b2d8e' : lvl >= 8 ? '#c0262c' : lvl >= 4 ? '#2f6fed' : '#2b2f38';
+  const body = armor ? { shirt: '#2f6fed', kompression: '#1b1d22', champion: '#e2b13c' }[armor.id] : '#ff5a1f';
+  const shoes = weapon && weapon.id === 'laufschuhe' ? '#c8f230' : '#f4f5f7';
   const aura = st.mind >= 30 ? `<circle cx="50" cy="52" r="${Math.min(46, 30 + (st.mind - 30) / 4)}" class="h-aura"/>` : '';
-  const weaponSvg = !weapon ? '<rect x="72" y="44" width="3" height="24" rx="1.5" fill="#8a5a2b"/>' : {
-    schwert: '<rect x="72" y="28" width="4" height="34" rx="1" fill="#cfd6dc" stroke="#6b7177"/><rect x="67" y="60" width="14" height="4" rx="2" fill="#8a5a2b"/>',
-    axt: '<rect x="72" y="30" width="3.5" height="38" rx="1.5" fill="#8a5a2b"/><path d="M75 30 q14 6 0 18 z" fill="#cfd6dc" stroke="#6b7177"/>',
-    kurzbogen: '<path d="M70 34 q14 18 0 36" fill="none" stroke="#8a5a2b" stroke-width="3"/><line x1="70" y1="34" x2="70" y2="70" stroke="#ddd" stroke-width="1"/>',
-    langbogen: '<path d="M70 26 q18 26 0 52" fill="none" stroke="#6b3e1d" stroke-width="3.5"/><line x1="70" y1="26" x2="70" y2="78" stroke="#ddd" stroke-width="1"/>',
-    netz: '<circle cx="76" cy="56" r="9" fill="none" stroke="#9a8a6a" stroke-width="1.5" stroke-dasharray="3 2"/><path d="M68 56 h16 M76 48 v16" stroke="#9a8a6a"/>',
-    dolch: '<path d="M74 44 l3 0 l-1.5 16 z" fill="#5a5a6e" stroke="#2b2b3a"/><rect x="71" y="58" width="9" height="3" rx="1.5" fill="#2b2b3a"/>',
+  const lh = [50 - sh - 2, 63], rh = [50 + sh + 2, 63]; // Hände
+  const weaponSvg = !weapon ? '' : {
+    boxhandschuhe: `<circle cx="${lh[0]}" cy="${lh[1]}" r="5.5" fill="#d62828" stroke="#7a1010"/><circle cx="${rh[0]}" cy="${rh[1]}" r="5.5" fill="#d62828" stroke="#7a1010"/>`,
+    medizinball: `<circle cx="${rh[0] + 4}" cy="${rh[1] - 2}" r="7.5" fill="#6b4a2b" stroke="#3b2814"/><path d="M${rh[0] - 3} ${rh[1] - 2} h15 M${rh[0] + 4} ${rh[1] - 9} v15" stroke="#3b2814" stroke-width="1"/>`,
+    springseil: `<path d="M${lh[0]} ${lh[1]} Q50 112 ${rh[0]} ${rh[1]}" fill="none" stroke="#2f6fed" stroke-width="1.5"/><rect x="${lh[0] - 1.5}" y="${lh[1] - 4}" width="3" height="8" rx="1.5" fill="#111"/><rect x="${rh[0] - 1.5}" y="${rh[1] - 4}" width="3" height="8" rx="1.5" fill="#111"/>`,
+    kopfhoerer: '<path d="M39 28 Q50 8 61 28" fill="none" stroke="#111" stroke-width="2.5"/><rect x="36.5" y="24" width="5" height="9" rx="2" fill="#ff5a1f"/><rect x="58.5" y="24" width="5" height="9" rx="2" fill="#ff5a1f"/>',
+    laufschuhe: '',
+    tablet: `<rect x="${rh[0] - 2}" y="${rh[1] - 15}" width="11" height="15" rx="1.5" fill="#111"/><rect x="${rh[0] - 0.5}" y="${rh[1] - 13.5}" width="8" height="11" fill="#6b9bff"/>`,
   }[weapon.id];
+  const gadget = !trinket ? '' : {
+    smartwatch: `<rect x="${lh[0] - 3}" y="55" width="6" height="5" rx="1" fill="#111" stroke="#c8f230" stroke-width=".8"/>`,
+    cap: '<path d="M39.5 25 Q50 11 60.5 25 Z" fill="#c0262c"/><path d="M58 24.5 h8 q-1 2 -8 2 z" fill="#8f1b1f"/>',
+    shake: '<rect x="24" y="76" width="8" height="14" rx="2" fill="#e8eaee" stroke="#9aa1ab"/><rect x="24" y="74" width="8" height="3" rx="1" fill="#ff5a1f"/>',
+    medaille: '<path d="M46 38 L50 47 L54 38" fill="none" stroke="#2f6fed" stroke-width="2"/><circle cx="50" cy="49" r="3.8" fill="#f2b233" stroke="#a87412"/>',
+  }[trinket.id];
   return `
-    <svg class="hero ${big ? 'big' : ''}" viewBox="0 0 100 100" aria-label="Held">
+    <svg class="hero ${size}" viewBox="0 0 100 100" aria-label="Held">
       ${aura}
       <ellipse cx="50" cy="94" rx="24" ry="4" class="h-shadow"/>
-      <path d="M${50 - sh} 40 L${50 - sh - 6} 82 L${50 + sh + 6} 82 L${50 + sh} 40 Z" fill="${cape}"/>
-      <rect x="42" y="66" width="6" height="24" rx="3" fill="#e2b48c"/><rect x="52" y="66" width="6" height="24" rx="3" fill="#e2b48c"/><rect x="40" y="64" width="20" height="11" rx="3" fill="#2b2f38"/>
-      <rect x="39" y="86" width="10" height="6" rx="3" fill="#f4f5f7" stroke="#9aa1ab"/><rect x="51" y="86" width="10" height="6" rx="3" fill="#f4f5f7" stroke="#9aa1ab"/>
+      <rect x="42" y="66" width="6" height="24" rx="3" fill="#e2b48c"/><rect x="52" y="66" width="6" height="24" rx="3" fill="#e2b48c"/>
+      <rect x="40" y="64" width="20" height="11" rx="3" fill="${armor && armor.id === 'kompression' ? '#1b1d22' : shorts}"/>
+      <rect x="39" y="86" width="10" height="6" rx="3" fill="${shoes}" stroke="#9aa1ab"/><rect x="51" y="86" width="10" height="6" rx="3" fill="${shoes}" stroke="#9aa1ab"/>
       <path d="M${50 - sh} 40 Q50 36 ${50 + sh} 40 L${50 + sh - 3} 70 L${50 - sh + 3} 70 Z" fill="${body}" stroke="rgba(0,0,0,.25)"/>
-      ${armor && armor.id === 'kette' ? `<path d="M${50 - sh + 2} 46 h${2 * sh - 4} M${50 - sh + 3} 52 h${2 * sh - 6} M${50 - sh + 3} 58 h${2 * sh - 6}" stroke="#6b7177" stroke-width="1" stroke-dasharray="2 1.5"/>` : ''}
+      ${armor && armor.id === 'kompression' ? `<path d="M${50 - sh + 2} 44 L${50 - sh + 5} 68 M${50 + sh - 2} 44 L${50 + sh - 5} 68" stroke="#c8f230" stroke-width="1.5"/>` : ''}
+      ${armor && armor.id === 'champion' ? `<path d="M${50 - sh + 1} 52 h${2 * sh - 2}" stroke="#c0262c" stroke-width="3"/>` : ''}
       <rect x="${50 - sh - 5}" y="41" width="6" height="22" rx="3" fill="#e2b48c"/>
       <rect x="${50 + sh - 1}" y="41" width="6" height="22" rx="3" fill="#e2b48c"/>
       <circle cx="50" cy="28" r="10" fill="#e9c19b"/>
       <path d="M40 26 q10 -14 20 0 q-4 -5 -10 -5 q-6 0 -10 5z" fill="#5a3a22"/>
       <circle cx="46.5" cy="29" r="1.2" fill="#2b2118"/><circle cx="53.5" cy="29" r="1.2" fill="#2b2118"/>
       <path d="M46 33 q4 ${p.wounds ? -1 : 2.5} 8 0" fill="none" stroke="#2b2118" stroke-width="1"/>
-      ${p.wounds ? '<rect x="42" y="20" width="16" height="4" rx="2" fill="#f4f1ea" stroke="#c9b8a0" transform="rotate(-12 50 22)"/>' : ''}
-      ${trinket ? `<circle cx="50" cy="47" r="3.5" fill="${{ weitsicht: '#8e6bd8', klee: '#3f9a4a', herz: '#d9473a', sonne: '#f2b233' }[trinket.id]}" stroke="#fff" stroke-width="1"/>` : ''}
+      ${p.wounds ? '<rect x="56" y="30" width="7" height="3.5" rx="1.5" fill="#f4f1ea" stroke="#c9b8a0" transform="rotate(-20 59 32)"/>' : ''}
+      ${gadget}
       ${weaponSvg}
       <text x="50" y="12" class="h-lvl">Lv ${lvl}</text>
     </svg>`;
@@ -1047,7 +1059,7 @@ function viewHeld() {
   const lvl = levelOf(p);
   return `
     <section class="card hero-card">
-      ${heroSvg(p, true)}
+      ${heroSvg(p, "big")}
       <div class="hero-side">
         <b class="hero-name">${esc(p.name)}</b>
         <small>${rankOf(p.life).icon} ${rankOf(p.life).name} · Level ${lvl}</small>
@@ -1134,7 +1146,7 @@ function viewArena() {
       const o = state.players[id];
       const [dot, txt] = chance(mf, fighterOf(o));
       const waiting = p.outgoing.some(x => x.to === id);
-      return oppRow(id, '🦸', o.name, `Level ${levelOf(o)} · ${num(o.ruhm)} 🏆 · ${dot} ${txt}`, waiting ? 'wartet …' : 'Herausfordern', waiting || !p.energy);
+      return oppRow(id, heroSvg(o, 'mini'), o.name, `Level ${levelOf(o)} · ${num(o.ruhm)} 🏆 · ${dot} ${txt}`, waiting ? 'wartet …' : 'Herausfordern', waiting || !p.energy);
     }).join('')}
 
     <h2>Wochenboss <small>neu jeden Montag</small></h2>
@@ -1170,8 +1182,8 @@ function duelSetup(p) {
         <button class="btn small" data-act="closeduel">✕</button>
       </div>
       <div class="intel">
-        ${see ? `🔮 <b>Weitsicht:</b> ${opp.items.length ? opp.items.map(id => `${itemOf(id).icon} ${itemOf(id).name}`).join(', ') : 'keine Ausrüstung'} · Lieblingstaktik ${TACTICS[opp.favorite].icon} ${TACTICS[opp.favorite].name}`
-          : '❔ Ausrüstung und Taktik des Gegners sind verborgen – das 🔮 Amulett der Weitsicht würde sie zeigen.'}
+        ${see ? `⌚ <b>Gegner-Scan:</b> ${opp.items.filter(itemOf).length ? opp.items.filter(itemOf).map(id => `${itemOf(id).icon} ${itemOf(id).name}`).join(', ') : 'keine Ausrüstung'} · Lieblingstaktik ${TACTICS[opp.favorite].icon} ${TACTICS[opp.favorite].name}`
+          : '❔ Ausrüstung und Taktik des Gegners sind verborgen – die ⌚ Smartwatch mit Gegner-Scan würde sie zeigen.'}
         ${d ? '<br>⚠️ Der Herausforderer hat seine 3 Taktiken schon gewählt und bekommt +10 % Angriffsbonus.' : '<br>💥 Als Herausforderer bekommst du +10 % Angriffsbonus.'}
       </div>
       <h3>Wähle deine Taktik für Runde ${Math.min(3, duelPick.length + 1)} von 3</h3>
@@ -1363,7 +1375,7 @@ function viewSetup() {
   }
   return `
     <section class="card setup">
-      <div class="setup-icon">🦸</div>
+      <div class="setup-icon">🏋️</div>
       <h2>Willkommen in der Arena</h2>
       <p>Jedes Training macht deinen Helden stärker: Kraft, Ausdauer, Geist. In Duellen zählen Taktik, Ausrüstung – und ein bisschen Glück.</p>
       ${nameField}

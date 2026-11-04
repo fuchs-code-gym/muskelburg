@@ -296,3 +296,4 @@ h3.slot { font-size: 12px; text-transform: uppercase; letter-spacing: .06em; col
 }
 #toast.show { opacity: 1; transform: translate(-50%, 0); }
 #toast.big { font-size: 16px; padding: 14px 20px; border-color: var(--accent); }
+.hero.mini { width: 44px; height: 44px; }
