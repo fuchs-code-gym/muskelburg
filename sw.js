@@ -1,9 +1,9 @@
-// Offline-Unterstützung: erst Netz, bei Funkloch aus dem Cache
-const CACHE = 'muskelburg-v3';
+// Offline-Unterstützung: immer erst frisch aus dem Netz, bei Funkloch aus dem Cache
+const CACHE = 'muskelburg-arena-4';
 const FILES = ['./', './index.html', './style.css', './app.js', './sync.js', './manifest.webmanifest', './icon.svg', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
-  e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES)));
+  e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES.map(f => new Request(f, { cache: 'reload' })))));
   self.skipWaiting();
 });
 
@@ -17,8 +17,11 @@ self.addEventListener('fetch', e => {
   const url = new URL(e.request.url);
   // nur eigene Dateien und die Firebase-Bibliothek zwischenspeichern – nie die Datenbank selbst
   if (url.origin !== location.origin && url.hostname !== 'www.gstatic.com') return;
+  // das Dorf-Archiv läuft ohne Zwischenspeicher
+  if (url.pathname.includes('/dorf/')) return;
   e.respondWith(
-    fetch(e.request)
+    // cache: 'no-cache' = beim Server nachfragen, ob es eine neue Version gibt (sonst bleiben alte Dateien hängen)
+    fetch(e.request, { cache: 'no-cache' })
       .then(res => {
         const copy = res.clone();
         caches.open(CACHE).then(c => c.put(e.request, copy));

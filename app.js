@@ -98,9 +98,9 @@ const NEEDS = {
 
 // Ränge nach Trainingseinheiten insgesamt – bleiben für immer
 const RANKS = [
-  { min: 0, icon: '🪵', name: 'Rekrut' }, { min: 15, icon: '🧱', name: 'Knappe' }, { min: 40, icon: '🪨', name: 'Krieger' },
-  { min: 80, icon: '⛓️', name: 'Eisenkrieger' }, { min: 150, icon: '🛡️', name: 'Ritter' },
-  { min: 300, icon: '⚔️', name: 'Stählerner Ritter' }, { min: 500, icon: '👑', name: 'Legende aus Stahl' },
+  { min: 0, icon: '🔰', name: 'Rekrut' }, { min: 15, icon: '🥉', name: 'Knappe' }, { min: 40, icon: '🥈', name: 'Krieger' },
+  { min: 80, icon: '🥇', name: 'Eisenkrieger' }, { min: 150, icon: '💎', name: 'Ritter' },
+  { min: 300, icon: '🏆', name: 'Stählerner Ritter' }, { min: 500, icon: '👑', name: 'Legende aus Stahl' },
 ];
 
 const BADGES = [
@@ -144,8 +144,8 @@ const BOSS_REWARD = 100;
 
 // ?geraet=2 in der Adresse = zweites, getrenntes Gerät im selben Browser (zum Testen)
 const DEVICE = new URLSearchParams(location.search).get('geraet') || '';
-const KEY = 'muskelburg-arena-v1' + DEVICE;
-const GAME_KEY = 'muskelburg-arena-game' + DEVICE;
+const KEY = 'muskelburg-arena-v2' + DEVICE;
+const GAME_KEY = 'muskelburg-arena-game-v2' + DEVICE;
 const DAY_MS = 86400000, H_MS = 3600e3;
 
 function todayStr(d = new Date()) {
@@ -954,7 +954,7 @@ function heroSvg(p, big = false) {
   const sh = Math.min(15, 9 + (st.str - BASE_STAT) / 12); // Schulterbreite wächst mit der Stärke
   const weapon = itemOf(p.equip.weapon), armor = itemOf(p.equip.armor), trinket = itemOf(p.equip.trinket);
   const cape = lvl >= 15 ? '#7b2d8e' : lvl >= 8 ? '#b23b2a' : lvl >= 4 ? '#3a6ea5' : '#7a6a58';
-  const body = armor ? { wams: '#8a5a2b', kette: '#8e959c', drache: '#2f7d5b' }[armor.id] : '#c9a77c';
+  const body = armor ? { wams: '#8a5a2b', kette: '#8e959c', drache: '#2f7d5b' }[armor.id] : '#ff5a1f';
   const aura = st.mind >= 30 ? `<circle cx="50" cy="52" r="${Math.min(46, 30 + (st.mind - 30) / 4)}" class="h-aura"/>` : '';
   const weaponSvg = !weapon ? '<rect x="72" y="44" width="3" height="24" rx="1.5" fill="#8a5a2b"/>' : {
     schwert: '<rect x="72" y="28" width="4" height="34" rx="1" fill="#cfd6dc" stroke="#6b7177"/><rect x="67" y="60" width="14" height="4" rx="2" fill="#8a5a2b"/>',
@@ -969,8 +969,8 @@ function heroSvg(p, big = false) {
       ${aura}
       <ellipse cx="50" cy="94" rx="24" ry="4" class="h-shadow"/>
       <path d="M${50 - sh} 40 L${50 - sh - 6} 82 L${50 + sh + 6} 82 L${50 + sh} 40 Z" fill="${cape}"/>
-      <rect x="42" y="66" width="6" height="24" rx="3" fill="#5a4632"/><rect x="52" y="66" width="6" height="24" rx="3" fill="#5a4632"/>
-      <rect x="40" y="86" width="9" height="6" rx="2" fill="#3b2a1c"/><rect x="51" y="86" width="9" height="6" rx="2" fill="#3b2a1c"/>
+      <rect x="42" y="66" width="6" height="24" rx="3" fill="#e2b48c"/><rect x="52" y="66" width="6" height="24" rx="3" fill="#e2b48c"/><rect x="40" y="64" width="20" height="11" rx="3" fill="#2b2f38"/>
+      <rect x="39" y="86" width="10" height="6" rx="3" fill="#f4f5f7" stroke="#9aa1ab"/><rect x="51" y="86" width="10" height="6" rx="3" fill="#f4f5f7" stroke="#9aa1ab"/>
       <path d="M${50 - sh} 40 Q50 36 ${50 + sh} 40 L${50 + sh - 3} 70 L${50 - sh + 3} 70 Z" fill="${body}" stroke="rgba(0,0,0,.25)"/>
       ${armor && armor.id === 'kette' ? `<path d="M${50 - sh + 2} 46 h${2 * sh - 4} M${50 - sh + 3} 52 h${2 * sh - 6} M${50 - sh + 3} 58 h${2 * sh - 6}" stroke="#6b7177" stroke-width="1" stroke-dasharray="2 1.5"/>` : ''}
       <rect x="${50 - sh - 5}" y="41" width="6" height="22" rx="3" fill="#e2b48c"/>
@@ -1437,5 +1437,13 @@ setInterval(() => {
 render();
 
 if ('serviceWorker' in navigator && location.protocol.startsWith('http')) {
-  navigator.serviceWorker.register('sw.js').catch(() => {});
+  // neue Version gefunden → einmal neu laden, damit nie alte und neue Dateien gemischt werden
+  const hadController = !!navigator.serviceWorker.controller;
+  let reloaded = false;
+  navigator.serviceWorker.addEventListener('controllerchange', () => {
+    if (hadController && !reloaded) { reloaded = true; location.reload(); }
+  });
+  navigator.serviceWorker.register('sw.js', { updateViaCache: 'none' })
+    .then(reg => document.addEventListener('visibilitychange', () => { if (!document.hidden) reg.update(); }))
+    .catch(() => {});
 }
