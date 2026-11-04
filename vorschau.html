@@ -1,0 +1,104 @@
+<!doctype html>
+<html lang="de">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <title>Hantelhelden – Jagd auf den Schweinehund</title>
+  <meta name="description" content="Das Gym-Spiel für Trainingspartner: Jedes Training ist ein Treffer gegen den inneren Schweinehund.">
+  <meta property="og:title" content="Hantelhelden – Jagd auf den Schweinehund">
+  <meta property="og:description" content="Jedes Training ist ein Treffer. Schafft ihr ihn zu zweit in 6 Wochen?">
+  <meta property="og:image" content="https://fuchs-code-gym.github.io/muskelburg/icon-512.png">
+  <meta name="theme-color" content="#14161b">
+  <link rel="icon" href="icon.svg" type="image/svg+xml">
+  <style>
+    :root { --bg: #0c0e12; --card: #161920; --card2: #1f232b; --line: #2a2f39; --text: #f2f4f7; --muted: #9aa2ae;
+            --accent: #ff5a1f; --volt: #c8f230; --bad: #ff4d4f; }
+    * { box-sizing: border-box; }
+    body { margin: 0; background: var(--bg); color: var(--text); font: 15px/1.45 system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; }
+    .poster { max-width: 430px; margin: 0 auto; padding: 22px 16px 28px; }
+    .brand { display: flex; align-items: center; gap: 8px; font-weight: 900; font-size: 15px; letter-spacing: .04em; text-transform: uppercase; }
+    .brand img { width: 30px; height: 30px; border-radius: 8px; }
+    .brand span { color: var(--accent); }
+    h1 { font-size: 30px; line-height: 1.05; margin: 18px 0 6px; text-transform: uppercase; font-weight: 900; letter-spacing: -.01em; }
+    h1 em { font-style: normal; color: var(--accent); }
+    .lead { color: var(--muted); margin: 0 0 6px; font-size: 16px; }
+    .stage { background: radial-gradient(circle at 50% 40%, #262b36, var(--card) 70%); border: 1px solid var(--line);
+             border-radius: 22px; padding: 12px 14px 12px; margin: 12px 0; position: relative; overflow: hidden; }
+    .stage svg { width: 100%; max-width: 210px; display: block; margin: 0 auto; }
+    .o { stroke: #15171c; stroke-width: 2.4; stroke-linejoin: round; }
+    .hit { position: absolute; right: 18px; top: 22px; font-weight: 900; font-size: 26px; color: var(--volt);
+           transform: rotate(8deg); text-shadow: 0 2px 0 #000; }
+    .crit { position: absolute; left: 16px; top: 30px; background: var(--accent); color: #fff; font-weight: 900; font-size: 12px;
+            padding: 4px 9px; border-radius: 999px; transform: rotate(-8deg); }
+    .hp-row { display: flex; justify-content: space-between; font-weight: 900; font-size: 13px; margin-top: 6px; text-transform: uppercase; }
+    .hp-row b { color: var(--bad); }
+    .hp { height: 12px; border-radius: 6px; background: var(--card2); border: 1px solid var(--line); overflow: hidden; margin-top: 5px; }
+    .hp i { display: block; height: 100%; width: 55%; background: linear-gradient(90deg, var(--bad), var(--accent)); }
+    .steps { list-style: none; padding: 0; margin: 0; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+    .steps li { background: var(--card); border: 1px solid var(--line); border-radius: 14px; padding: 9px 11px; }
+    .steps .ic { font-size: 20px; margin-right: 4px; }
+    .steps b { font-size: 14.5px; }
+    .steps small { display: block; color: var(--muted); font-size: 12.5px; line-height: 1.35; margin-top: 2px; }
+    .tags { display: flex; flex-wrap: wrap; gap: 6px; margin: 14px 0 0; }
+    .tags span { background: var(--card2); border: 1px solid var(--line); border-radius: 999px; padding: 5px 10px; font-size: 13px; font-weight: 700; }
+    .cta { display: block; text-align: center; margin: 14px 0 6px; background: var(--accent); color: #fff; text-decoration: none;
+           font-weight: 900; text-transform: uppercase; letter-spacing: .03em; padding: 15px; border-radius: 14px; font-size: 16px; }
+    .foot { text-align: center; color: var(--muted); font-size: 12.5px; margin: 0; }
+  </style>
+</head>
+<body>
+  <main class="poster">
+    <div class="brand"><img src="icon-192.png" alt=""><div>Hantel<span>helden</span></div></div>
+
+    <h1>Jagd auf den inneren <em>Schweinehund</em></h1>
+    <p class="lead">Das Gym-Spiel für Trainingspartner. Jedes Training ist ein Treffer – schafft ihr ihn zu zweit in 6 Wochen?</p>
+
+    <div class="stage">
+      <div class="crit">🏆 REKORD ×2,5</div>
+      <div class="hit">−340</div>
+      <svg viewBox="0 0 220 190" role="img" aria-label="Der Schweinehund auf dem Sofa">
+        <ellipse cx="110" cy="178" rx="70" ry="8" fill="rgba(0,0,0,.25)"/>
+        <rect class="o" x="22" y="112" width="176" height="56" rx="18" fill="#5b4bd6"/>
+        <rect class="o" x="10" y="100" width="34" height="68" rx="14" fill="#6c5ce7"/><rect class="o" x="176" y="100" width="34" height="68" rx="14" fill="#6c5ce7"/>
+        <ellipse class="o" cx="110" cy="120" rx="58" ry="46" fill="#f4a9bb"/>
+        <ellipse cx="110" cy="128" rx="38" ry="30" fill="#fbd0da"/>
+        <path class="o" d="M52 132 Q110 120 168 132 L164 166 Q110 176 56 166 Z" fill="#8a8f99"/>
+        <path d="M58 140 Q110 130 162 140" fill="none" stroke="#fff" stroke-width="2" stroke-dasharray="4 4" opacity=".6"/>
+        <g transform="rotate(12 172 108)"><rect class="o" x="160" y="84" width="28" height="38" rx="4" fill="#ffd23f"/>
+          <text x="174" y="108" font-size="9" font-weight="900" text-anchor="middle" fill="#c0262c">CHIPS</text></g>
+        <ellipse class="o" cx="166" cy="112" rx="10" ry="8" fill="#f4a9bb"/>
+        <ellipse class="o" cx="56" cy="114" rx="10" ry="9" fill="#f4a9bb"/>
+        <path class="o" d="M62 44 Q50 70 64 86 Q70 60 78 48 Z" fill="#8a5a3b"/>
+        <path class="o" d="M158 44 Q170 70 156 86 Q150 60 142 48 Z" fill="#8a5a3b"/>
+        <ellipse class="o" cx="110" cy="68" rx="46" ry="38" fill="#f4a9bb"/>
+        <path d="M92 44 q18 -8 36 0 M96 50 q14 -6 28 0" fill="none" stroke="#e48aa2" stroke-width="2.4" stroke-linecap="round"/>
+        <ellipse class="o" cx="92" cy="66" rx="7" ry="6" fill="#fff"/><circle cx="93" cy="67" r="3" fill="#15171c"/>
+        <path class="o" d="M84 64 Q92 58 100 64" fill="#f4a9bb"/>
+        <ellipse class="o" cx="128" cy="66" rx="7" ry="6" fill="#fff"/><circle cx="129" cy="67" r="3" fill="#15171c"/>
+        <path class="o" d="M120 64 Q128 58 136 64" fill="#f4a9bb"/>
+        <ellipse class="o" cx="110" cy="84" rx="18" ry="12" fill="#e48aa2"/>
+        <ellipse cx="104" cy="84" rx="3" ry="4.5" fill="#7a3346"/><ellipse cx="116" cy="84" rx="3" ry="4.5" fill="#7a3346"/>
+        <path d="M94 98 Q110 96 126 98" fill="none" stroke="#15171c" stroke-width="2.6" stroke-linecap="round"/>
+        <g transform="rotate(18 133 38)"><rect class="o" x="120" y="34" width="26" height="9" rx="4" fill="#fff"/>
+          <path d="M128 36 v6 M136 36 v6" stroke="#c9b8a0" stroke-width="1.5"/></g>
+      </svg>
+      <div class="hp-row"><span>Der Schweinehund</span><b>5.500 / 10.000</b></div>
+      <div class="hp"><i></i></div>
+    </div>
+
+    <ul class="steps">
+      <li><span class="ic">🏋️</span><b>Trainieren</b><small>Nach dem Gym kurz antippen, was du gemacht hast.</small></li>
+      <li><span class="ic">👊</span><b>Zuschlagen</b><small>Timing-Spiel für Extra-Schaden. Neuer Rekord = Volltreffer.</small></li>
+      <li><span class="ic">🔐</span><b>Beute</b><small>Nach jedem Training öffnet sich dein Spind.</small></li>
+      <li><span class="ic">😴</span><b>Nicht schwänzen!</b><small>Faule Tage heilen den Schweinehund.</small></li>
+    </ul>
+
+    <div class="tags">
+      <span>🤝 zu zweit</span><span>🥊 Duelle</span><span>👹 Wochenmonster</span><span>👑 MVP-Krone</span>
+    </div>
+
+    <a class="cta" href="./">Jagd starten 💪</a>
+    <p class="foot">Kostenlos · läuft im Browser · fuchs-code-gym.github.io/muskelburg</p>
+  </main>
+</body>
+</html>
