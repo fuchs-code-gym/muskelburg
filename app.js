@@ -1,7 +1,7 @@
 'use strict';
 
 /* =========================================================
-   Muskelburg – Arena der Helden
+   Hantelhelden – die Gym-Arena
    Training macht deinen Helden stärker, im Duell zählen Taktik, Ausrüstung und ein bisschen Glück.
    Spielregeln – hier lässt sich alles bequem anpassen
    ========================================================= */
@@ -401,7 +401,7 @@ async function joinGame(pid) {
   save();
   startSync();
   setupStep = null;
-  toast(`⚔️ Willkommen in der Arena, ${me().name}!`, true);
+  toast(`⚔️ Willkommen bei den Hantelhelden, ${me().name}!`, true);
   render();
 }
 
@@ -410,7 +410,7 @@ function playLocal() { saveGame({ local: true }); setupStep = null; render(); }
 async function shareInvite() {
   const url = inviteLink();
   try {
-    if (navigator.share) { await navigator.share({ title: 'Muskelburg', text: 'Komm in die Arena! 💪⚔️', url }); return; }
+    if (navigator.share) { await navigator.share({ title: 'Hantelhelden', text: 'Komm zu den Hantelhelden – ab in die Arena! 💪⚡', url }); return; }
   } catch (e) { /* abgebrochen */ }
   try { await navigator.clipboard.writeText(url); toast('🔗 Link kopiert'); } catch (e) { prompt('Diesen Link schicken:', url); }
 }
@@ -950,51 +950,69 @@ function renderHeader() {
 
 /* ---------- Held als Zeichnung ---------- */
 
-function heroSvg(p, size = "") {
+function heroSvg(p, size = '') {
   const lvl = levelOf(p);
   const st = p.stats;
-  const sh = Math.min(15, 9 + (st.str - BASE_STAT) / 12); // Schulterbreite wächst mit der Stärke
+  const k = Math.min(1, (st.str - BASE_STAT) / 60);       // 0 … 1: wie muskulös
+  const sw = 12 + 5 * k;                                   // halbe Schulterbreite
+  const bi = 3.6 + 2.6 * k;                                // Bizeps
   const weapon = itemOf(p.equip.weapon), armor = itemOf(p.equip.armor), trinket = itemOf(p.equip.trinket);
-  // Shorts-Farbe zeigt die Level-Stufe
-  const shorts = lvl >= 15 ? '#7b2d8e' : lvl >= 8 ? '#c0262c' : lvl >= 4 ? '#2f6fed' : '#2b2f38';
-  const body = armor ? { shirt: '#2f6fed', kompression: '#1b1d22', champion: '#e2b13c' }[armor.id] : '#ff5a1f';
-  const shoes = weapon && weapon.id === 'laufschuhe' ? '#c8f230' : '#f4f5f7';
-  const aura = st.mind >= 30 ? `<circle cx="50" cy="52" r="${Math.min(46, 30 + (st.mind - 30) / 4)}" class="h-aura"/>` : '';
-  const lh = [50 - sh - 2, 63], rh = [50 + sh + 2, 63]; // Hände
-  const weaponSvg = !weapon ? '' : {
-    boxhandschuhe: `<circle cx="${lh[0]}" cy="${lh[1]}" r="5.5" fill="#d62828" stroke="#7a1010"/><circle cx="${rh[0]}" cy="${rh[1]}" r="5.5" fill="#d62828" stroke="#7a1010"/>`,
-    medizinball: `<circle cx="${rh[0] + 4}" cy="${rh[1] - 2}" r="7.5" fill="#6b4a2b" stroke="#3b2814"/><path d="M${rh[0] - 3} ${rh[1] - 2} h15 M${rh[0] + 4} ${rh[1] - 9} v15" stroke="#3b2814" stroke-width="1"/>`,
-    springseil: `<path d="M${lh[0]} ${lh[1]} Q50 112 ${rh[0]} ${rh[1]}" fill="none" stroke="#2f6fed" stroke-width="1.5"/><rect x="${lh[0] - 1.5}" y="${lh[1] - 4}" width="3" height="8" rx="1.5" fill="#111"/><rect x="${rh[0] - 1.5}" y="${rh[1] - 4}" width="3" height="8" rx="1.5" fill="#111"/>`,
-    kopfhoerer: '<path d="M39 28 Q50 8 61 28" fill="none" stroke="#111" stroke-width="2.5"/><rect x="36.5" y="24" width="5" height="9" rx="2" fill="#ff5a1f"/><rect x="58.5" y="24" width="5" height="9" rx="2" fill="#ff5a1f"/>',
+  const tier = lvl >= 15 ? '#f2b233' : lvl >= 8 ? '#e5383b' : lvl >= 4 ? '#2f6fed' : '#9aa1ab';
+  const shirt = armor ? { shirt: '#2f6fed', kompression: '#2a2f39', champion: '#f2b233' }[armor.id] : '#ff5a1f';
+  const shorts = armor && armor.id === 'kompression' ? '#2a2f39' : '#3a3f4b';
+  const shoes = weapon && weapon.id === 'laufschuhe' ? '#c8f230' : '#ffffff';
+  const O = 'stroke="#15171c" stroke-width="1.4" stroke-linejoin="round"';
+  const skin = '#f1c08f', hair = '#3b2a20';
+  // Bizeps-Pose: Schulter → Ellbogen → Faust
+  const sL = [50 - sw, 43], eL = [50 - sw - 9, 47], fL = [50 - sw - 8, 33];
+  const sR = [50 + sw, 43], eR = [50 + sw + 9, 47], fR = [50 + sw + 8, 33];
+  const limb = (a, b) => `<path d="M${a[0]} ${a[1]} L${b[0]} ${b[1]}" stroke="#15171c" stroke-width="8.6" stroke-linecap="round"/>
+    <path d="M${a[0]} ${a[1]} L${b[0]} ${b[1]}" stroke="${skin}" stroke-width="6" stroke-linecap="round"/>`;
+  const arm = (s, e, f, dir) => `${limb(s, e)}${limb(e, f)}
+    <circle cx="${(s[0] + e[0]) / 2 + dir * 0.5}" cy="${(s[1] + e[1]) / 2 - 2}" r="${bi}" fill="${skin}" ${O}/>
+    <circle cx="${f[0]}" cy="${f[1]}" r="4" fill="${skin}" ${O}/>`;
+  const extra = [];
+  if (weapon) extra.push({
+    boxhandschuhe: `<circle cx="${fL[0]}" cy="${fL[1]}" r="6" fill="#e5383b" ${O}/><circle cx="${fR[0]}" cy="${fR[1]}" r="6" fill="#e5383b" ${O}/>
+      <rect x="${fL[0] - 4}" y="${fL[1] + 4}" width="8" height="3" rx="1" fill="#fff" ${O}/><rect x="${fR[0] - 4}" y="${fR[1] + 4}" width="8" height="3" rx="1" fill="#fff" ${O}/>`,
+    springseil: `<path d="M${fL[0]} ${fL[1]} Q50 -10 ${fR[0]} ${fR[1]}" fill="none" stroke="#2f6fed" stroke-width="1.6"/>
+      <rect x="${fL[0] - 2}" y="${fL[1] - 6}" width="4" height="9" rx="2" fill="#15171c"/><rect x="${fR[0] - 2}" y="${fR[1] - 6}" width="4" height="9" rx="2" fill="#15171c"/>`,
+    kopfhoerer: '<path d="M37.5 22 Q50 2 62.5 22" fill="none" stroke="#15171c" stroke-width="3" stroke-linecap="round"/><rect x="35" y="19" width="6" height="10" rx="3" fill="#ff5a1f" ' + O + '/><rect x="59" y="19" width="6" height="10" rx="3" fill="#ff5a1f" ' + O + '/>',
+    medizinball: `<circle cx="74" cy="82" r="8" fill="#7a5530" ${O}/><path d="M66 82 h16 M74 74 v16" stroke="#15171c" stroke-width="1"/>`,
     laufschuhe: '',
-    tablet: `<rect x="${rh[0] - 2}" y="${rh[1] - 15}" width="11" height="15" rx="1.5" fill="#111"/><rect x="${rh[0] - 0.5}" y="${rh[1] - 13.5}" width="8" height="11" fill="#6b9bff"/>`,
-  }[weapon.id];
-  const gadget = !trinket ? '' : {
-    smartwatch: `<rect x="${lh[0] - 3}" y="55" width="6" height="5" rx="1" fill="#111" stroke="#c8f230" stroke-width=".8"/>`,
-    cap: '<path d="M39.5 25 Q50 11 60.5 25 Z" fill="#c0262c"/><path d="M58 24.5 h8 q-1 2 -8 2 z" fill="#8f1b1f"/>',
-    shake: '<rect x="24" y="76" width="8" height="14" rx="2" fill="#e8eaee" stroke="#9aa1ab"/><rect x="24" y="74" width="8" height="3" rx="1" fill="#ff5a1f"/>',
-    medaille: '<path d="M46 38 L50 47 L54 38" fill="none" stroke="#2f6fed" stroke-width="2"/><circle cx="50" cy="49" r="3.8" fill="#f2b233" stroke="#a87412"/>',
-  }[trinket.id];
+    tablet: `<rect x="${fR[0] - 1}" y="${fR[1] - 14}" width="12" height="16" rx="2" fill="#15171c"/><rect x="${fR[0] + 1}" y="${fR[1] - 12}" width="8" height="11" rx="1" fill="#6b9bff"/>`,
+  }[weapon.id] || '');
+  if (trinket) extra.push({
+    smartwatch: `<rect x="${fL[0] - 3.5}" y="${fL[1] + 3.5}" width="7" height="5" rx="1.5" fill="#15171c"/><rect x="${fL[0] - 2}" y="${fL[1] + 4.6}" width="4" height="2.8" rx=".6" fill="#c8f230"/>`,
+    cap: '<path d="M38.5 21 Q39 9 50 9 Q61 9 61.5 21 Z" fill="#e5383b" ' + O + '/><path d="M58 20 Q68 19 70 22 Q62 23 58 22 Z" fill="#b8282b" ' + O + '/>',
+    shake: `<rect x="21" y="74" width="9" height="15" rx="2.5" fill="#f4f5f7" ${O}/><rect x="21" y="71" width="9" height="4" rx="1.5" fill="#ff5a1f" ${O}/>`,
+    medaille: '<path d="M45 40 L50 50 L55 40" fill="none" stroke="#2f6fed" stroke-width="2.4"/><circle cx="50" cy="52" r="4.2" fill="#f2b233" ' + O + '/>',
+  }[trinket.id] || '');
   return `
-    <svg class="hero ${size}" viewBox="0 0 100 100" aria-label="Held">
-      ${aura}
-      <ellipse cx="50" cy="94" rx="24" ry="4" class="h-shadow"/>
-      <rect x="42" y="66" width="6" height="24" rx="3" fill="#e2b48c"/><rect x="52" y="66" width="6" height="24" rx="3" fill="#e2b48c"/>
-      <rect x="40" y="64" width="20" height="11" rx="3" fill="${armor && armor.id === 'kompression' ? '#1b1d22' : shorts}"/>
-      <rect x="39" y="86" width="10" height="6" rx="3" fill="${shoes}" stroke="#9aa1ab"/><rect x="51" y="86" width="10" height="6" rx="3" fill="${shoes}" stroke="#9aa1ab"/>
-      <path d="M${50 - sh} 40 Q50 36 ${50 + sh} 40 L${50 + sh - 3} 70 L${50 - sh + 3} 70 Z" fill="${body}" stroke="rgba(0,0,0,.25)"/>
-      ${armor && armor.id === 'kompression' ? `<path d="M${50 - sh + 2} 44 L${50 - sh + 5} 68 M${50 + sh - 2} 44 L${50 + sh - 5} 68" stroke="#c8f230" stroke-width="1.5"/>` : ''}
-      ${armor && armor.id === 'champion' ? `<path d="M${50 - sh + 1} 52 h${2 * sh - 2}" stroke="#c0262c" stroke-width="3"/>` : ''}
-      <rect x="${50 - sh - 5}" y="41" width="6" height="22" rx="3" fill="#e2b48c"/>
-      <rect x="${50 + sh - 1}" y="41" width="6" height="22" rx="3" fill="#e2b48c"/>
-      <circle cx="50" cy="28" r="10" fill="#e9c19b"/>
-      <path d="M40 26 q10 -14 20 0 q-4 -5 -10 -5 q-6 0 -10 5z" fill="#5a3a22"/>
-      <circle cx="46.5" cy="29" r="1.2" fill="#2b2118"/><circle cx="53.5" cy="29" r="1.2" fill="#2b2118"/>
-      <path d="M46 33 q4 ${p.wounds ? -1 : 2.5} 8 0" fill="none" stroke="#2b2118" stroke-width="1"/>
-      ${p.wounds ? '<rect x="56" y="30" width="7" height="3.5" rx="1.5" fill="#f4f1ea" stroke="#c9b8a0" transform="rotate(-20 59 32)"/>' : ''}
-      ${gadget}
-      ${weaponSvg}
-      <text x="50" y="12" class="h-lvl">Lv ${lvl}</text>
+    <svg class="hero ${size}" viewBox="0 0 100 ${size === "mini" ? 100 : 104}" aria-label="Held">
+      <circle cx="50" cy="52" r="46" class="h-bg"/>
+      <circle cx="50" cy="52" r="46" fill="none" stroke="${tier}" stroke-width="3"/>
+      ${st.mind >= 30 ? '<circle cx="50" cy="52" r="41" fill="none" stroke="#8e6bd8" stroke-width="1.5" stroke-dasharray="3 3" opacity=".8"/>' : ''}
+      <ellipse cx="50" cy="91" rx="20" ry="3" class="h-shadow"/>
+      <rect x="42" y="68" width="6.5" height="17" rx="3" fill="${skin}" ${O}/><rect x="51.5" y="68" width="6.5" height="17" rx="3" fill="${skin}" ${O}/>
+      <path d="M36 84 h13 v3 a3 3 0 0 1 -3 3 h-10 a3 3 0 0 1 0 -6z" fill="${shoes}" ${O}/>
+      <path d="M64 84 h-13 v3 a3 3 0 0 0 3 3 h10 a3 3 0 0 0 0 -6z" fill="${shoes}" ${O}/>
+      <path d="M38.5 63 h23 l1.5 11 h-10.5 l-2.5 -3 l-2.5 3 h-10.5z" fill="${shorts}" ${O}/>
+      ${arm(sL, eL, fL, -1)}${arm(sR, eR, fR, 1)}
+      <path d="M${50 - sw} 41 Q50 35 ${50 + sw} 41 L${50 + sw - 5} 65 L${50 - sw + 5} 65 Z" fill="${shirt}" ${O}/>
+      ${armor && armor.id === 'kompression' ? `<path d="M${50 - sw + 3} 44 L${50 - sw + 7} 63 M${50 + sw - 3} 44 L${50 + sw - 7} 63" stroke="#c8f230" stroke-width="1.6"/>` : ''}
+      ${armor && armor.id === 'champion' ? `<path d="M${50 - sw + 2} 52 H${50 + sw - 2}" stroke="#e5383b" stroke-width="3"/>` : ''}
+      ${!armor ? '<path d="M44 41 Q50 46 56 41" fill="none" stroke="#15171c" stroke-width="1.2"/>' : ''}
+      <rect x="46" y="33" width="8" height="6" fill="${skin}" ${O}/>
+      <circle cx="38.8" cy="24.5" r="2.6" fill="${skin}" ${O}/><circle cx="61.2" cy="24.5" r="2.6" fill="${skin}" ${O}/>
+      <circle cx="50" cy="23" r="11.5" fill="${skin}" ${O}/>
+      <path d="M38.6 21.5 Q38 9.5 50 9.5 Q62 9.5 61.4 21.5 Q58 15.5 51 16.5 Q44 15 38.6 21.5z" fill="${hair}" ${O}/>
+      <path d="M44 20.5 l3.5 -.8 M56 20.5 l-3.5 -.8" stroke="#15171c" stroke-width="1.2" stroke-linecap="round"/>
+      <circle cx="45.8" cy="24" r="1.5" fill="#15171c"/><circle cx="54.2" cy="24" r="1.5" fill="#15171c"/>
+      <path d="M45.5 28.5 Q50 ${p.wounds ? 28 : 32.5} 54.5 28.5" fill="none" stroke="#15171c" stroke-width="1.3" stroke-linecap="round"/>
+      ${p.wounds ? '<rect x="54.5" y="26" width="6" height="3" rx="1.5" fill="#fff" stroke="#c9b8a0" transform="rotate(-20 57.5 27.5)"/>' : ''}
+      ${extra.join('')}
+      ${size === 'mini' ? '' : `<rect x="37" y="93" width="26" height="9" rx="4.5" fill="${tier}"/><text x="50" y="99.8" class="h-lvl">LV ${lvl}</text>`}
     </svg>`;
 }
 
@@ -1376,7 +1394,7 @@ function viewSetup() {
   return `
     <section class="card setup">
       <div class="setup-icon">🏋️</div>
-      <h2>Willkommen in der Arena</h2>
+      <h2>Willkommen bei den Hantelhelden</h2>
       <p>Jedes Training macht deinen Helden stärker: Kraft, Ausdauer, Geist. In Duellen zählen Taktik, Ausrüstung – und ein bisschen Glück.</p>
       ${nameField}
       <button class="btn primary" data-act="create">Neues Spiel starten</button>
