@@ -1,201 +1,142 @@
 'use strict';
 
 /* =========================================================
+   Muskelburg – Arena der Helden
+   Training macht deinen Helden stärker, im Duell zählen Taktik, Ausrüstung und ein bisschen Glück.
    Spielregeln – hier lässt sich alles bequem anpassen
    ========================================================= */
 
-const RES = {
-  holz:  { name: 'Holz',  icon: '🪵' },
-  lehm:  { name: 'Lehm',  icon: '🧱' },
-  eisen: { name: 'Eisen', icon: '⛓️' },
+const STATS = {
+  str:  { name: 'Stärke',   icon: '💪' },
+  end:  { name: 'Ausdauer', icon: '🫀' },
+  mind: { name: 'Geist',    icon: '🧠' },
+};
+const BASE_STAT = 10;
+
+// Taktiken wie Schere-Stein-Papier: jede schlägt eine andere, jede nutzt einen anderen Wert
+const TACTICS = {
+  A: { name: 'Auf Distanz', icon: '🏹', stat: 'end',  beats: 'C' },
+  B: { name: 'Hinterhalt',  icon: '🪤', stat: 'mind', beats: 'A' },
+  C: { name: 'Ansturm',     icon: '🐗', stat: 'str',  beats: 'B' },
+};
+const T_WIN = 1.5, T_LOSE = 0.7; // Taktik schlägt / wird geschlagen
+const FLAVOR = {
+  AC: 'weicht dem Ansturm aus und trifft aus der Ferne',
+  CB: 'stürmt durch den Hinterhalt, bevor die Falle zuschnappt',
+  BA: 'lockt den Fernkämpfer in die Falle',
+  AA: 'Fernduell – die bessere Ausdauer entscheidet',
+  BB: 'beide lauern – der klügere Kopf gewinnt',
+  CC: 'Kopf an Kopf – rohe Kraft entscheidet',
 };
 
-// Was ein Training im Gym im Spiel einbringt.
-// Start: nur Milon-Zirkel (ca. 10 Geräte, ~10 Min., Gewicht an eigene Maximalleistung angepasst).
-// Weitere Übungen später einfach hier ergänzen.
-// light = Aufwärmen: kleiner Ertrag, zählt nicht als Durchgang, höchstens perDay-mal am Tag
+// Training: gives = Wertepunkte, perDay = höchstens so oft am Tag, heals = heilt eine Verletzung
 const ACTIVITIES = [
-  { id: 'warmup', name: 'Aufwärmen', unit: '10 Min. Crosstrainer, Rad oder Joggen', icon: '🚴',
-    gives: { holz: 40, lehm: 30, eisen: 15 }, light: true, perDay: 2 },
-  { id: 'milon', name: 'Milon-Zirkel', unit: '1 Durchgang · ca. 10 Min.', icon: '🔁',
-    gives: { holz: 100, lehm: 70, eisen: 35 } },
-  // Kurs: zählt als Trainingstag, aber nicht als Milon-Durchgang; danach 24 Std. „Innere Ruhe“
-  { id: 'kurs', name: 'Kurs', unit: 'einmal am Tag · danach 24 Std. Innere Ruhe', icon: '🧘',
-    gives: { holz: 100, lehm: 70, eisen: 35 }, perDay: 1, course: true },
+  { id: 'milon',  name: 'Milon-Zirkel',      unit: '1 Durchgang · ca. 10 Min.',            icon: '🔁', gives: { str: 3, end: 1 }, taler: 10, perDay: 6 },
+  { id: 'frei',   name: 'Freies Training',   unit: '15 Min. an Geräten oder Hanteln',      icon: '🏋️', gives: { str: 2, end: 1 }, taler: 8,  perDay: 4 },
+  { id: 'cardio', name: 'Rad / Crosstrainer', unit: '10 Min.',                             icon: '🚴', gives: { end: 2 },         taler: 5,  perDay: 6 },
+  { id: 'kurs',   name: 'Kurs',              unit: 'Yoga, Pilates, Rücken … · 1× am Tag',  icon: '🧘', gives: { mind: 4, end: 1 }, taler: 12, perDay: 1, heals: true, course: true },
+  { id: 'dehnen', name: 'Dehnen & Mobility', unit: '10 Min. · bis 2× am Tag',              icon: '🤸', gives: { mind: 2 },        taler: 5,  perDay: 2, heals: true },
 ];
 const COURSES = [
-  { id: 'yoga', name: 'Yoga', icon: '🧘' },
-  { id: 'pilates', name: 'Pilates', icon: '🤸' },
-  { id: 'ruecken', name: 'Rücken', icon: '🦴' },
-  { id: 'spinning', name: 'Spinning', icon: '🚲' },
+  { id: 'yoga', name: 'Yoga', icon: '🧘' }, { id: 'pilates', name: 'Pilates', icon: '🤸' },
+  { id: 'ruecken', name: 'Rücken', icon: '🦴' }, { id: 'spinning', name: 'Spinning', icon: '🚲' },
   { id: 'sonstiges', name: 'Sonstiges', icon: '✨' },
 ];
-const CALM_H = 24;        // Innere Ruhe: so lange nach einem Kurs …
-const CALM_BONUS = 0.2;   // … +20 % Verteidigung
-
-// Hauptquelle je Rohstoff (für „Was fehlt noch?“)
-const MAIN_SOURCE = { holz: 'milon', lehm: 'milon', eisen: 'milon' };
-
-const START_RES = 50;      // Startvorrat je Rohstoff
-const DAY_BONUS = 0.5;     // erster Eintrag des Tages: +50 %
-const COST_FACTOR = 1.3;   // jede Stufe kostet 30 % mehr als die vorige
-const BOOST_PER_LEVEL = 0.1;
-
-// Kosten = base × 1,3^(aktuelle Stufe) → die ersten Stufen kosten nur ein Training
-const BUILDINGS = [
-  { id: 'haupthaus',   name: 'Haupthaus',  icon: '🏰', max: 20, base: { holz: 50, lehm: 30, eisen: 15 },
-    desc: 'Herz des Dorfes. Kein Gebäude kann höher sein als das Haupthaus · jede Stufe baut 4 % schneller' },
-  { id: 'holzfaeller', name: 'Holzfäller', icon: '🪓', max: 20, base: { holz: 30, lehm: 25, eisen: 10 },
-    desc: '+10 % Holz pro Stufe' },
-  { id: 'lehmgrube',   name: 'Lehmgrube',  icon: '⛏️', max: 20, base: { holz: 35, lehm: 15, eisen: 10 },
-    desc: '+10 % Lehm pro Stufe' },
-  { id: 'schmiede',    name: 'Schmiede',   icon: '⚒️', max: 20, base: { holz: 40, lehm: 25, eisen: 5 },
-    desc: '+10 % Eisen pro Stufe' },
-  { id: 'speicher',    name: 'Speicher',   icon: '🛖', max: 20, base: { holz: 40, lehm: 35, eisen: 10 },
-    desc: 'Mehr Platz für Rohstoffe' },
-  { id: 'wall',        name: 'Wall',       icon: '🛡️', max: 20, base: { holz: 20, lehm: 45, eisen: 15 },
-    desc: '+8 % Verteidigung pro Stufe' },
-  { id: 'kaserne',     name: 'Kaserne',    icon: '⚔️', max: 20, base: { holz: 60, lehm: 50, eisen: 40 },
-    req: { haupthaus: 3 }, desc: 'Bildet Fußtruppen aus · jede Stufe macht sie 5 % billiger' },
-  { id: 'stall',       name: 'Stall',      icon: '🐴', max: 20, base: { holz: 90, lehm: 70, eisen: 80 },
-    req: { haupthaus: 5, kaserne: 3 }, desc: 'Bildet Reiter aus · jede Stufe macht sie 5 % billiger' },
-  { id: 'zelt',        name: 'Feldherrenzelt', icon: '⛺', max: 1, base: { holz: 400, lehm: 300, eisen: 250 }, time: 30,
-    req: { haupthaus: 6, kaserne: 4 }, desc: 'Schaltet Daueraufträge frei: Truppen plündern Ruinen und Bots automatisch immer wieder' },
-  { id: 'statue',      name: 'Stahlstatue', icon: '🗿', max: 1, base: { holz: 2000, lehm: 1500, eisen: 1000 }, time: 240,
-    req: { haupthaus: 10, speicher: 6 }, goal: true,
-    desc: 'Saisonziel! Wer sie zuerst errichtet, gewinnt die Saison.' },
+// Gesund gelebt: heilt Verletzungen (je 1× am Tag)
+const HEALTH = [
+  { id: 'schlaf', name: 'Gut geschlafen', icon: '😴' },
+  { id: 'essen',  name: 'Gesund gegessen', icon: '🥗' },
+  { id: 'wasser', name: 'Genug getrunken', icon: '💧' },
 ];
-const BOOSTED_BY = { holz: 'holzfaeller', lehm: 'lehmgrube', eisen: 'schmiede' };
 
-// Truppen: att = Angriff, def = Verteidigung, carry = Beute pro Einheit, speed = Minuten pro Kartenfeld
-const UNITS = [
-  { id: 'kaempfer', name: 'Kämpfer',      icon: '🗡️', at: 'kaserne', att: 10, def: 4,  carry: 40, speed: 6,
-    cost: { holz: 30, lehm: 20, eisen: 25 }, desc: 'stark im Angriff' },
-  { id: 'bogen',    name: 'Bogenschütze', icon: '🏹', at: 'kaserne', att: 4,  def: 11, carry: 15, speed: 6,
-    cost: { holz: 40, lehm: 25, eisen: 15 }, desc: 'stark in der Verteidigung' },
-  { id: 'reiter',   name: 'Reiter',       icon: '🏇', at: 'stall',   att: 18, def: 6,  carry: 80, speed: 3,
-    cost: { holz: 70, lehm: 40, eisen: 60 }, desc: 'schnell, trägt viel Beute' },
-  { id: 'ramme',    name: 'Rammbock',     icon: '🐏', at: 'kaserne', req: 5, att: 2, def: 1, carry: 0, speed: 10,
-    cost: { holz: 150, lehm: 60, eisen: 80 }, desc: 'jeder senkt den Wall im Kampf um 1 Stufe, 2 überlebende reißen danach 1 Stufe ein' },
-];
-const MILITIA = 10;             // Grundverteidigung je Haupthaus-Stufe (Dorfbewohner)
-const WALL_BONUS = 0.08;        // +8 % Verteidigung je Wall-Stufe
-const BOT_DEF = 20;             // Bot-Verteidigung ≈ 20 × Haupthaus^1,3
-const PLAYER_LOOT_SHARE = 0.3;  // höchstens 30 % des Vorrats können geplündert werden
-const LOOT_REGEN_H = 12;        // nach so vielen Stunden ist ein geplündertes Dorf wieder voll
+const ENERGY_MAX = 5;        // ⚡ Kampfenergie – gibt es nur durchs Training
+const ENERGY_START = 3;
+const WOUND_MAX = 3;         // Verletzungen: je −10 % im Kampf
+const WOUND_MALUS = 0.1;
+const WOUND_HEAL_H = 48;     // ohne Zutun heilt eine Verletzung nach 48 Std.
+const CHALLENGE_H = 12;      // so lange hat man Zeit, eine Herausforderung anzunehmen
+const CHALLENGER_BONUS = 0.1;
+const EXP_PER_FIGHT = 0.01, EXP_MAX = 0.2; // Kampferfahrung: +1 % je Kampf, höchstens +20 %
+const LUCK_MIN = 0.75, LUCK_SPAN = 0.5;    // Glück: × 0,75 … 1,25
+const RUHM_START = 1000;
+const CATCHUP_PER_LEVEL = 0.1, CATCHUP_MAX = 0.5; // wer im Level hinten liegt, bekommt mehr Wertepunkte
 
-// Bauzeit in Minuten = 1 × 1,35^Stufe (Stufe 5: 4 Min., Stufe 10: 20 Min., Stufe 15: 1,5 Std., Stufe 20: 5 Std.)
-const BUILD_BASE_MIN = 1;
-const BUILD_TIME_FACTOR = 1.35;
-const HQ_SPEEDUP = 0.96;        // jede Haupthaus-Stufe: Bauzeit × 0,96
-// Training ist der Turbo: jeder Durchgang halbiert die Restbauzeit (mindestens −10 Min.)
-const TRAIN_SPEEDUP_SHARE = 0.5;
-const TRAIN_SPEEDUP_MIN = 10;
-
-// Saison: Ziel ist die Stahlstatue, sonst gewinnt am Ende die meisten Punkte
 const SEASON_WEEKS = 8;
-
-// Wochenziel: so viele Trainingstage pro Woche öffnen die Wochentruhe
 const WEEK_GOAL_DAYS = 2;
-const WEEK_CHEST = { holz: 150, lehm: 110, eisen: 60 }; // + 25 % je Woche Serie, höchstens doppelt
+const WEEK_CHEST = 40;       // Taler, + 25 % je Woche Serie (bis doppelt), dazu 1 ⚡
+const TEAM_GOAL_DAYS = 5;
+const TEAM_CHEST = 60;       // Taler für beide, dazu 1 ⚡
 
-// Ränge nach Durchgängen insgesamt – bleiben über alle Saisons, Bonus gilt für immer
+// Ausrüstung: Freischalten durch Training, dann mit Taler kaufen. bonus gilt je Taktik (all = alle)
+const SLOTS = { weapon: 'Waffe', armor: 'Rüstung', trinket: 'Talisman' };
+const ITEMS = [
+  { id: 'schwert',  slot: 'weapon',  icon: '⚔️', name: 'Eisenschwert',     cost: 60,  bonus: { C: 4 },  need: { what: 'kraft', n: 10 } },
+  { id: 'kurzbogen', slot: 'weapon', icon: '🏹', name: 'Kurzbogen',        cost: 60,  bonus: { A: 4 },  need: { what: 'cardio', n: 10 } },
+  { id: 'netz',     slot: 'weapon',  icon: '🕸️', name: 'Fangnetz',         cost: 60,  bonus: { B: 4 },  need: { what: 'geist', n: 6 } },
+  { id: 'axt',      slot: 'weapon',  icon: '🪓', name: 'Kriegsaxt',        cost: 200, bonus: { C: 10 }, need: { what: 'kraft', n: 40 } },
+  { id: 'langbogen', slot: 'weapon', icon: '🎯', name: 'Langbogen',        cost: 200, bonus: { A: 10 }, need: { what: 'cardio', n: 40 } },
+  { id: 'dolch',    slot: 'weapon',  icon: '🗡️', name: 'Schattendolch',    cost: 200, bonus: { B: 10 }, need: { what: 'geist', n: 25 } },
+  { id: 'wams',     slot: 'armor',   icon: '🧥', name: 'Lederwams',        cost: 50,  bonus: { all: 2 }, need: { what: 'days', n: 5 } },
+  { id: 'kette',    slot: 'armor',   icon: '⛓️', name: 'Kettenhemd',       cost: 150, bonus: { all: 5 }, need: { what: 'days', n: 20 } },
+  { id: 'drache',   slot: 'armor',   icon: '🐉', name: 'Drachenpanzer',    cost: 300, bonus: { all: 9 }, need: { what: 'boss', n: 3 } },
+  { id: 'weitsicht', slot: 'trinket', icon: '🔮', name: 'Amulett der Weitsicht', cost: 80, bonus: { B: 2 }, reveal: true, need: { what: 'geist', n: 5 },
+    desc: 'zeigt vor dem Kampf die Ausrüstung und Lieblingstaktik des Gegners' },
+  { id: 'klee',     slot: 'trinket', icon: '🍀', name: 'Glücksklee',       cost: 100, bonus: {}, luck: 0.1, need: { what: 'weeks', n: 3 },
+    desc: 'mehr Glück: nie wieder ein ganz schlechter Wurf' },
+  { id: 'herz',     slot: 'trinket', icon: '❤️‍🔥', name: 'Herz des Kämpfers', cost: 120, bonus: { all: 3 }, need: { what: 'wins', n: 10 } },
+  { id: 'sonne',    slot: 'trinket', icon: '🌞', name: 'Sonnenstein',      cost: 250, bonus: { all: 6 }, need: { what: 'days', n: 30 } },
+];
+const NEEDS = {
+  kraft:  { label: 'Milon- oder Kraft-Einheiten', count: p => p.counts.milon + p.counts.frei },
+  cardio: { label: 'Rad/Crosstrainer-Einheiten',  count: p => p.counts.cardio },
+  geist:  { label: 'Kurse oder Dehn-Einheiten',   count: p => p.counts.kurs + p.counts.dehnen },
+  days:   { label: 'Trainingstage',               count: p => p.life.days },
+  weeks:  { label: 'Wochenziele',                 count: p => p.life.goals },
+  wins:   { label: 'gewonnene Kämpfe',            count: p => p.life.wins },
+  boss:   { label: 'besiegte Wochenbosse',        count: p => p.life.bossWins },
+};
+
+// Ränge nach Trainingseinheiten insgesamt – bleiben für immer
 const RANKS = [
-  { min: 0,   icon: '🪵', name: 'Rekrut',            bonus: 0 },
-  { min: 10,  icon: '🧱', name: 'Knappe',            bonus: 0.02 },
-  { min: 25,  icon: '🪨', name: 'Krieger',           bonus: 0.04 },
-  { min: 50,  icon: '⛓️', name: 'Eisenkrieger',      bonus: 0.06 },
-  { min: 100, icon: '🛡️', name: 'Ritter',            bonus: 0.08 },
-  { min: 200, icon: '⚔️', name: 'Stählerner Ritter', bonus: 0.10 },
-  { min: 350, icon: '👑', name: 'Legende aus Stahl', bonus: 0.15 },
+  { min: 0, icon: '🪵', name: 'Rekrut' }, { min: 15, icon: '🧱', name: 'Knappe' }, { min: 40, icon: '🪨', name: 'Krieger' },
+  { min: 80, icon: '⛓️', name: 'Eisenkrieger' }, { min: 150, icon: '🛡️', name: 'Ritter' },
+  { min: 300, icon: '⚔️', name: 'Stählerner Ritter' }, { min: 500, icon: '👑', name: 'Legende aus Stahl' },
 ];
 
-// Abzeichen – bleiben über alle Saisons
 const BADGES = [
-  { icon: '🌱', name: 'Erster Schritt',  desc: '1 Durchgang',            test: l => l.rounds >= 1 },
-  { icon: '🔟', name: 'Zweistellig',     desc: '10 Durchgänge',          test: l => l.rounds >= 10 },
-  { icon: '💪', name: 'Dranbleiber',     desc: '50 Durchgänge',          test: l => l.rounds >= 50 },
-  { icon: '🦾', name: 'Hundert',         desc: '100 Durchgänge',         test: l => l.rounds >= 100 },
-  { icon: '🏋️', name: 'Maschine',        desc: '250 Durchgänge',         test: l => l.rounds >= 250 },
-  { icon: '📅', name: 'Stammgast',       desc: '30 Trainingstage',       test: l => l.days >= 30 },
-  { icon: '🔥', name: 'Feuer',           desc: '4 Wochenziele in Folge', test: l => l.bestStreak >= 4 },
-  { icon: '☄️', name: 'Unaufhaltsam',    desc: '12 Wochenziele in Folge', test: l => l.bestStreak >= 12 },
-  { icon: '🧘', name: 'Ausgeglichen',    desc: '10 Kurse',               test: l => l.courses >= 10 },
-  { icon: '🌸', name: 'Kursliebhaber',   desc: '25 Kurse',               test: l => l.courses >= 25 },
-  { icon: '🕉️', name: 'Zen-Meister',     desc: '50 Kurse',               test: l => l.courses >= 50 },
-  { icon: '⚔️', name: 'Eroberer',        desc: 'ersten Kampf gewonnen',  test: l => l.raidsWon >= 1 },
-  { icon: '🗿', name: 'Baumeister',      desc: 'Stahlstatue errichtet',  test: l => l.monuments >= 1 },
-  { icon: '🏆', name: 'Champion',        desc: 'eine Saison gewonnen',   test: l => l.seasonsWon >= 1 },
+  { icon: '🌱', name: 'Erster Schritt', desc: '1 Training',            test: l => l.sessions >= 1 },
+  { icon: '💪', name: 'Dranbleiber',    desc: '50 Trainings',          test: l => l.sessions >= 50 },
+  { icon: '🦾', name: 'Maschine',       desc: '250 Trainings',         test: l => l.sessions >= 250 },
+  { icon: '📅', name: 'Stammgast',      desc: '30 Trainingstage',      test: l => l.days >= 30 },
+  { icon: '🔥', name: 'Feuer',          desc: '4 Wochenziele in Folge', test: l => l.bestStreak >= 4 },
+  { icon: '⚔️', name: 'Erster Sieg',    desc: '1 Kampf gewonnen',      test: l => l.wins >= 1 },
+  { icon: '🏅', name: 'Gladiator',      desc: '25 Kämpfe gewonnen',    test: l => l.wins >= 25 },
+  { icon: '🤺', name: 'Duellant',       desc: '5 Duelle gegen Menschen', test: l => l.duels >= 5 },
+  { icon: '🐲', name: 'Bossjäger',      desc: 'Wochenboss besiegt',    test: l => l.bossWins >= 1 },
+  { icon: '🧘', name: 'Ausgeglichen',   desc: '10 Kurse oder Dehn-Einheiten', test: l => l.calm >= 10 },
+  { icon: '🏆', name: 'Champion',       desc: 'eine Saison gewonnen',  test: l => l.seasonsWon >= 1 },
 ];
 
-// Bot-Dörfer wachsen jeden Tag von allein (gleiche Regeln wie ihr).
-// aggr = Chance je 12-Stunden-Fenster, dass der Bot von sich aus angreift. Zurückschlagen tun alle.
-// am/dm = Stärke im Angriff/in der Verteidigung, prefer = Lieblingsgebäude
+// Bot-Helden: Grundwerte + Wachstum pro Tag seit Spielbeginn; w = Vorliebe für Taktik A/B/C
 const BOTS = [
-  { id: 'mia',    name: 'Mini-Mia',          icon: '🐭', perDay: 50,  rest: 0.5,  aggr: 0,    am: 0.6, dm: 0.7, info: 'winzig, leichte Beute' },
-  { id: 'fritz',  name: 'Faulpelz Fritz',    icon: '🦥', perDay: 75,  rest: 0.45, aggr: 0,    am: 0.8, dm: 0.9, info: 'gemütlich, greift nie von sich aus an' },
-  { id: 'hanno',  name: 'Angsthase Hanno',   icon: '🐰', perDay: 90,  rest: 0.3,  aggr: 0,    am: 0.5, dm: 1.5, prefer: 'wall', info: 'versteckt sich hinter seinem Wall' },
-  { id: 'trude',  name: 'Träumerin Trude',   icon: '🦄', perDay: 100, rest: 0.4,  aggr: 0.02, am: 0.9, dm: 1,   info: 'meist friedlich' },
-  { id: 'gisela', name: 'Weise Gisela',      icon: '🦉', perDay: 120, rest: 0.2,  aggr: 0.03, am: 1,   dm: 1.2, prefer: 'speicher', info: 'plant langfristig' },
-  { id: 'berta',  name: 'Festungs-Berta',    icon: '🐢', perDay: 140, rest: 0.2,  aggr: 0.02, am: 0.7, dm: 1.8, prefer: 'wall', info: 'fast uneinnehmbar' },
-  { id: 'frieda', name: 'Fleißige Frieda',   icon: '🐝', perDay: 150, rest: 0.3,  aggr: 0.04, am: 1,   dm: 1,   info: 'trainiert fast jeden zweiten Tag' },
-  { id: 'lotte',  name: 'Lotte Langarm',     icon: '🐙', perDay: 160, rest: 0.25, aggr: 0.07, am: 1.1, dm: 0.9, info: 'greift gern aus der Ferne an' },
-  { id: 'rudi',   name: 'Raubritter Rudi',   icon: '🦊', perDay: 170, rest: 0.25, aggr: 0.16, am: 1.3, dm: 0.7, info: 'plündert, wo er kann' },
-  { id: 'kuno',   name: 'Kuno Keiler',       icon: '🐗', perDay: 190, rest: 0.3,  aggr: 0.1,  am: 1.2, dm: 1,   info: 'stürmt los ohne nachzudenken' },
-  { id: 'olaf',   name: 'Olaf der Bär',      icon: '🐻', perDay: 220, rest: 0.25, aggr: 0.06, am: 1.1, dm: 1.2, info: 'stark, aber träge' },
-  { id: 'bruno',  name: 'Bruno Bulle',       icon: '🐂', perDay: 250, rest: 0.2,  aggr: 0.1,  am: 1.2, dm: 1.1, info: 'rennt alles über den Haufen' },
-  { id: 'egon',   name: 'Eiserner Egon',     icon: '🦍', perDay: 280, rest: 0.15, aggr: 0.07, am: 1.1, dm: 1.3, info: 'lebt praktisch im Gym' },
-  { id: 'horst',  name: 'Wolfs-Horst',       icon: '🐺', perDay: 300, rest: 0.1,  aggr: 0.13, am: 1.4, dm: 1,   info: 'der gefährlichste Bot der Welt' },
+  { id: 'puppe',  name: 'Trainingspuppe',  icon: '🎯', base: [8, 8, 8],    grow: 0,    w: [1, 1, 1], ruhm: 800,  info: 'perfekt zum Üben' },
+  { id: 'mia',    name: 'Mini-Mia',        icon: '🐭', base: [11, 13, 11], grow: 0.1,  w: [2, 1, 1], ruhm: 880,  info: 'flink, aber schwach' },
+  { id: 'fritz',  name: 'Faulpelz Fritz',  icon: '🦥', base: [14, 11, 15], grow: 0.2,  w: [1, 3, 1], ruhm: 940,  info: 'lauert lieber, statt zu laufen' },
+  { id: 'hanno',  name: 'Hasenfuß Hanno',  icon: '🐰', base: [12, 20, 13], grow: 0.3,  w: [4, 1, 1], ruhm: 1000, info: 'hält immer Abstand' },
+  { id: 'frieda', name: 'Fleißige Frieda', icon: '🐝', base: [19, 19, 19], grow: 0.45, w: [1, 1, 1], ruhm: 1060, info: 'ausgeglichen und zäh' },
+  { id: 'rudi',   name: 'Raubritter Rudi', icon: '🦊', base: [27, 17, 21], grow: 0.55, w: [1, 1, 3], ruhm: 1120, info: 'stürmt am liebsten los' },
+  { id: 'gisela', name: 'Weise Gisela',    icon: '🦉', base: [17, 20, 31], grow: 0.6,  w: [1, 3, 1], ruhm: 1180, info: 'Meisterin des Hinterhalts' },
+  { id: 'olaf',   name: 'Olaf der Bär',    icon: '🐻', base: [37, 21, 15], grow: 0.75, w: [1, 1, 4], ruhm: 1240, info: 'pure Kraft' },
+  { id: 'lotte',  name: 'Lotte Langarm',   icon: '🐙', base: [21, 35, 23], grow: 0.75, w: [3, 1, 1], ruhm: 1300, info: 'trifft aus jeder Entfernung' },
+  { id: 'horst',  name: 'Wolfs-Horst',     icon: '🐺', base: [44, 40, 40], grow: 0.9,  w: [1, 1, 1], ruhm: 1400, info: 'der gefährlichste Kämpfer der Arena' },
 ];
-const BOT_SPLIT = { holz: 0.45, lehm: 0.35, eisen: 0.2 };
-const BOT_ATT = 14;            // Bot-Angriff ≈ 14 × Haupthaus^1,3 × am
-const BOT_CARRY = 3;           // Beute je Angriffspunkt
-const BOT_SLOT_H = 12;         // alle 12 Std. entscheidet jeder Bot, ob er angreift
-const NEWBIE_DAYS = 2;         // die ersten 2 Tage einer Saison greifen Bots nicht von sich aus an
-const REVENGE_COOLDOWN_H = 12; // ein Bot schlägt höchstens alle 12 Std. zurück
-
-// Fair bleiben, auch wenn einer viel mehr trainiert
-const CATCHUP_PER_STEP = 0.1;  // +10 % je 10 % Punkte-Rückstand auf den anderen Spieler …
-const CATCHUP_MAX = 0.6;       // … höchstens +60 %
-const TIRED_FROM = 3;          // ab dem 3. Durchgang am Tag …
-const TIRED_MALUS = 0.25;      // … 25 % weniger (Regeneration ist auch Training!)
-const SHIELD_H = 12;           // nach einem verlorenen Kampf 12 Std. Schutzschild
-const TEAM_GOAL_DAYS = 5;      // gemeinsam 5 Trainingstage pro Woche …
-const TEAM_CHEST = { holz: 200, lehm: 150, eisen: 80 }; // … öffnen die Teamtruhe für beide
-const RANK_RAMP_ROUNDS = 20;   // Rang-Bonus startet jede Saison bei 50 % und ist nach 20 Durchgängen voll
-
-// Automatisierungen
-const PASSIVE_SHARE = 0.02;    // jede Stufe Holzfäller/Lehmgrube/Schmiede: pro Tag 2 % eines Durchgangs von allein
-const SECOND_SLOT_HQ = 10;     // ab Haupthaus 10: zweite Baustelle
-const AUTO_RECRUIT_RANK = 25;  // ab Rang Krieger: überschüssige Rohstoffe werden zu Truppen
-const AUTO_RECRUIT_FULL = 0.9; // sobald alles zu 90 % voll ist …
-const AUTO_RECRUIT_KEEP = 0.7; // … wird alles über 70 % ausgebildet
-
-// Weltkarte: 25 × 25 Felder, feste Plätze für alle Dörfer
-const MAP_SIZE = 25;
-const MAP_POS = {
-  a: [12, 13], b: [14, 11],
-  fritz: [9, 9], mia: [16, 15], hanno: [10, 16], frieda: [17, 8], gisela: [7, 13], trude: [18, 12],
-  rudi: [5, 6], berta: [20, 18], olaf: [12, 4], kuno: [4, 19], bruno: [21, 6], lotte: [13, 21],
-  egon: [2, 2], horst: [23, 23],
-};
-// Ruinen: Ziele zum Plündern, füllen sich von allein wieder auf. loot = Beute, wenn sie ganz voll sind
-const RUINS = [
-  { id: 'ruin1', name: 'Verlassener Hof', pos: [11, 10], pts: 12,  def: 10,  loot: { holz: 150, lehm: 100, eisen: 50 } },
-  { id: 'ruin2', name: 'Morsche Scheune', pos: [8, 11],  pts: 16,  def: 25,  loot: { holz: 220, lehm: 160, eisen: 90 } },
-  { id: 'ruin3', name: 'Alte Mühle',      pos: [15, 17], pts: 20,  def: 45,  loot: { holz: 300, lehm: 220, eisen: 130 } },
-  { id: 'ruin4', name: 'Köhlerhütte',     pos: [19, 10], pts: 28,  def: 80,  loot: { holz: 450, lehm: 320, eisen: 200 } },
-  { id: 'ruin5', name: 'Räuberlager',     pos: [6, 4],   pts: 35,  def: 130, loot: { holz: 600, lehm: 450, eisen: 300 } },
-  { id: 'ruin6', name: 'Zerfallene Burg', pos: [23, 2],  pts: 60,  def: 250, loot: { holz: 1000, lehm: 750, eisen: 500 } },
-  { id: 'ruin7', name: 'Drachenhöhle',    pos: [2, 23],  pts: 120, def: 500, loot: { holz: 1800, lehm: 1400, eisen: 1000 } },
+// Wochenbosse: wechseln jede Woche, wachsen mit dem stärkeren Helden mit
+const BOSSES = [
+  { id: 'golem',  name: 'Steingolem',     icon: '🗿', base: [60, 30, 30], w: [1, 1, 3], info: 'langsam, aber unglaublich stark' },
+  { id: 'drache', name: 'Rauchdrache',    icon: '🐉', base: [40, 55, 35], w: [3, 1, 1], info: 'speit Feuer aus der Ferne' },
+  { id: 'koenig', name: 'Der Arenakönig', icon: '👑', base: [45, 45, 50], w: [1, 2, 1], info: 'listig und erfahren' },
 ];
-
-// Position der Gebäude in der Dorfansicht (Zeichenfläche 360 × 240)
-const SCENE_POS = {
-  haupthaus: [180, 108], kaserne: [112, 46], stall: [248, 46],
-  holzfaeller: [52, 100], lehmgrube: [308, 100],
-  schmiede: [92, 168], speicher: [268, 168], wall: [180, 188], statue: [136, 132], zelt: [226, 136],
-};
+const BOSS_REWARD = 100;
 
 /* =========================================================
    Zustand & Speichern
@@ -203,75 +144,61 @@ const SCENE_POS = {
 
 // ?geraet=2 in der Adresse = zweites, getrenntes Gerät im selben Browser (zum Testen)
 const DEVICE = new URLSearchParams(location.search).get('geraet') || '';
-const KEY = 'muskelburg-v1' + DEVICE;
-const DAY_MS = 86400000;
+const KEY = 'muskelburg-arena-v1' + DEVICE;
+const GAME_KEY = 'muskelburg-arena-game' + DEVICE;
+const DAY_MS = 86400000, H_MS = 3600e3;
 
 function todayStr(d = new Date()) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
-function daysBetween(a, b) {
-  return Math.round((new Date(b + 'T12:00') - new Date(a + 'T12:00')) / DAY_MS);
-}
+function daysBetween(a, b) { return Math.round((new Date(b + 'T12:00') - new Date(a + 'T12:00')) / DAY_MS); }
+function rid() { return Math.random().toString(36).slice(2, 12); }
 
-function newVillage(name) {
-  const lv = {};
-  for (const b of BUILDINGS) lv[b.id] = b.id === 'haupthaus' ? 1 : 0;
-  const res = {};
-  for (const r in RES) res[r] = START_RES;
-  const units = {};
-  for (const u of UNITS) units[u.id] = 0;
-  return { name, res, lv, units, spent: 0, lastDay: null, log: [], missions: [], reports: [], queue: [], life: newLife(),
-    rounds: 0, shieldUntil: 0, passiveAt: Date.now(), pacc: {}, autoRecruit: null,
-    incoming: [],   // Angriffe von Bots auf dieses Dorf
-    botSlot: null,  // zuletzt ausgewertetes 12-Stunden-Fenster
-    revenge: {},    // Bot → letzter Gegenschlag
-    teamClaimed: {}, credited: false, season: null, resetId: null, updatedAt: 0,
-    calmUntil: 0 }; // Innere Ruhe nach einem Kurs
-}
-
-// Lebenslange Werte – überstehen jeden Saison-Neustart
 function newLife() {
-  return { rounds: 0, days: 0, weeks: {}, streak: 0, bestStreak: 0, lastGoalWeek: null,
-    raidsWon: 0, monuments: 0, seasonsWon: 0, courses: 0 };
+  return { sessions: 0, days: 0, weeks: {}, streak: 0, bestStreak: 0, lastGoalWeek: null, goals: 0,
+    wins: 0, fights: 0, duels: 0, bossWins: 0, seasonsWon: 0, calm: 0 };
+}
+
+function newHero(name) {
+  return {
+    name, stats: { str: BASE_STAT, end: BASE_STAT, mind: BASE_STAT }, xp: 0, taler: 0, energy: ENERGY_START,
+    wounds: 0, woundAt: 0, ruhm: RUHM_START,
+    counts: { milon: 0, frei: 0, cardio: 0, kurs: 0, dehnen: 0 },
+    owned: {}, equip: { weapon: null, armor: null, trinket: null }, tactics: ['C', 'A', 'B'],
+    life: newLife(), lastDay: null, log: [], reports: [],
+    outgoing: [], incoming: [], // Herausforderungen an / von Menschen
+    bossWeek: null, teamClaimed: {}, credited: false, season: null, resetId: null, updatedAt: 0,
+  };
 }
 
 function freshState() {
   return {
-    v: 1,
-    startDay: todayStr(), // Beginn der aktuellen Saison
-    current: 'a',
-    players: { a: newVillage('Spieler 1'), b: newVillage('Spieler 2') },
-    raids: {}, // Ziel-ID → Zeitpunkt der letzten Plünderung
-    season: { no: 1, weeks: SEASON_WEEKS, winner: null },
-    hall: [],  // Ruhmeshalle: Sieger vergangener Saisons
-    team: {},  // Wochen, in denen die Teamtruhe geöffnet wurde
-    resetId: rid(), // ändert sich bei „Spiel zurücksetzen“
+    v: 1, startDay: todayStr(), created: todayStr(), current: 'a',
+    players: { a: newHero('Spieler 1'), b: newHero('Spieler 2') },
+    season: { no: 1, weeks: SEASON_WEEKS, winner: null }, hall: [], team: {}, resetId: rid(),
   };
 }
-function rid() { return Math.random().toString(36).slice(2, 12); }
 
-// Fehlende Felder ergänzen – für alte Spielstände und für Daten aus der Online-Datenbank,
-// die leere Listen und Objekte einfach weglässt
+// Fehlende Felder ergänzen – die Online-Datenbank lässt leere Listen und Objekte einfach weg
 const asList = x => Array.isArray(x) ? x.filter(Boolean) : x ? Object.values(x) : [];
-function normalizePlayer(p, name = '') {
-  const fresh = newVillage(name);
+function normalizeHero(p, name = '') {
+  const fresh = newHero(name);
   p = { ...fresh, ...p };
-  for (const k of ['lv', 'res', 'units', 'life']) p[k] = { ...fresh[k], ...p[k] };
+  for (const k of ['stats', 'counts', 'equip', 'life']) p[k] = { ...fresh[k], ...p[k] };
   p.life.weeks = p.life.weeks || {};
-  for (const k of ['pacc', 'revenge', 'teamClaimed']) p[k] = p[k] || {};
-  for (const k of ['log', 'missions', 'reports', 'incoming']) p[k] = asList(p[k]);
-  p.queue = asList(p.queue);
-  for (const e of p.log) { e.got = e.got || {}; e.cost = e.cost || {}; e.units = e.units || {}; }
-  for (const r of p.reports) for (const k of ['lost', 'loot', 'sent', 'bonus']) r[k] = r[k] || {};
-  for (const m of p.missions) for (const k of ['units', 'survivors', 'loot']) m[k] = m[k] || {};
-  for (const q of p.queue) q.cost = q.cost || {};
+  p.owned = p.owned || {};
+  p.teamClaimed = p.teamClaimed || {};
+  p.tactics = asList(p.tactics).length === 3 ? asList(p.tactics) : fresh.tactics;
+  for (const k of ['log', 'reports', 'outgoing', 'incoming']) p[k] = asList(p[k]);
+  for (const r of p.reports) r.rounds = asList(r.rounds);
+  for (const d of [...p.outgoing, ...p.incoming]) d.tactics = asList(d.tactics);
   return p;
 }
 function normalizeMeta(s) {
-  s.raids = s.raids || {};
   s.season = { no: 1, weeks: SEASON_WEEKS, winner: null, ...s.season };
   s.hall = asList(s.hall);
   s.team = s.team || {};
+  s.created = s.created || s.startDay;
   s.resetId = s.resetId || rid();
   return s;
 }
@@ -280,7 +207,7 @@ function load() {
   try {
     const s = JSON.parse(localStorage.getItem(KEY));
     if (s && s.v === 1) {
-      for (const id in s.players) s.players[id] = normalizePlayer(s.players[id]);
+      for (const id in s.players) s.players[id] = normalizeHero(s.players[id]);
       return normalizeMeta(s);
     }
   } catch (e) { /* kaputter oder blockierter Speicher → neues Spiel */ }
@@ -295,30 +222,31 @@ function save() {
 
 let state = load();
 let tab = 'training';
-let mapSel = null;
+let duelTarget = null;  // gewählter Gegner in der Arena
+let duelPick = [];      // gewählte Taktiken (3 Runden)
+let answering = null;   // Herausforderung, auf die gerade geantwortet wird
+let freshReport = null; // gerade ausgetragener Kampf (wird animiert gezeigt)
 const me = () => state.players[state.current];
 
 /* =========================================================
-   Online-Spiel: jedes Handy schreibt nur sein eigenes Dorf.
-   Was den anderen betrifft (Angriffe), geht als Nachricht an dessen Handy.
+   Online-Spiel: jedes Handy schreibt nur seinen eigenen Helden.
+   Was den anderen betrifft (Herausforderungen, Ergebnisse), geht als Nachricht an dessen Handy.
    ========================================================= */
 
-const GAME_KEY = 'muskelburg-game' + DEVICE; // { id, me } online oder { local: true }
 let game = null;
 try { game = JSON.parse(localStorage.getItem(GAME_KEY)); } catch (e) { /* kein Spiel */ }
-let sync = null;          // Firebase-Anbindung (sync.js), sobald geladen
+let sync = null;
 let connected = false;
 const online = () => !!(game && game.id);
 const ownIds = () => online() ? [game.me] : Object.keys(state.players);
 const mine = () => ownIds().map(id => state.players[id]);
 if (online()) state.current = game.me;
-state.outbox = state.outbox || []; // Nachrichten, die noch ins Netz müssen
+state.outbox = state.outbox || [];
 
 function saveGame(g) {
   game = g;
   try { localStorage.setItem(GAME_KEY, JSON.stringify(g)); } catch (e) { /* ignorieren */ }
 }
-
 const clean = x => JSON.parse(JSON.stringify(x)); // ohne undefined – mag die Datenbank nicht
 
 function pushMine() {
@@ -326,7 +254,6 @@ function pushMine() {
   sync.setPlayer(game.id, game.me, clean(state.players[game.me]));
   flushOutbox();
 }
-
 function flushOutbox() {
   if (!online() || !sync) return;
   while (state.outbox.length) {
@@ -336,15 +263,12 @@ function flushOutbox() {
   }
   try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { /* ignorieren */ }
 }
-
-// gemeinsame Werte (Saison, Ruinen, Teamziel) ändern
 function metaSet(patch) {
   if (!online()) return;
   state.outbox.push({ meta: patch });
   flushOutbox();
 }
-
-// Ereignis für ein anderes Dorf: lokal sofort anwenden oder ans andere Handy schicken
+// Nachricht an einen Helden: eigener → sofort anwenden, sonst ans andere Handy schicken
 function sendEvent(pid, ev) {
   if (ownIds().includes(pid)) { applyEvent(state.players[pid], ev); return; }
   state.outbox.push({ to: pid, ev });
@@ -352,27 +276,29 @@ function sendEvent(pid, ev) {
 }
 
 function applyEvent(p, ev) {
-  if (ev.kind !== 'hit') return;
-  const lost = hitDefender(p, ev.defLoss);
-  const loot = {};
-  for (const r in ev.loot || {}) { loot[r] = Math.min(p.res[r], ev.loot[r]); p.res[r] -= loot[r]; }
-  p.lv.wall = Math.max(0, p.lv.wall - (ev.wallDown || 0));
-  p.shieldUntil = Math.max(p.shieldUntil, ev.shieldUntil || 0);
-  p.reports.unshift({ t: ev.t, incoming: true, name: ev.name, win: !ev.attWin, lost, loot, wallDown: ev.wallDown || 0, shieldOn: ev.attWin });
-  trimReports(p);
-  if (p === me()) toast(ev.attWin ? `🔥 ${ev.name} hat dich überfallen!` : `🛡️ Angriff von ${ev.name} abgewehrt!`, true);
+  if (ev.kind === 'challenge') {
+    if (!p.incoming.some(d => d.id === ev.duel.id)) {
+      p.incoming.push(ev.duel);
+      if (p === me()) toast(`⚔️ ${ev.duel.fromName} fordert dich heraus!`, true);
+    }
+  } else if (ev.kind === 'result' && ev.defSide) {
+    finishDefense(p, ev.result);
+  } else if (ev.kind === 'result') {
+    finishHumanDuel(p, ev.result);
+  }
 }
 
-// Saisonwechsel oder Zurücksetzen auf das eigene Dorf anwenden
+// Saisonwechsel oder Zurücksetzen auf den eigenen Helden anwenden
 function reconcileOwn() {
   let changed = false;
   for (const id of ownIds()) {
     const p = state.players[id];
     if (p.resetId && p.resetId !== state.resetId) {
-      state.players[id] = normalizePlayer({ name: p.name });
+      state.players[id] = normalizeHero({ name: p.name, tactics: p.tactics });
       changed = true;
     } else if (p.season && p.season !== state.season.no) {
-      state.players[id] = normalizePlayer({ name: p.name, life: p.life, teamClaimed: p.teamClaimed });
+      // neue Saison: Ruhm und offene Kämpfe zurück, der Held selbst bleibt (er spiegelt echtes Training)
+      Object.assign(p, { ruhm: RUHM_START, wounds: 0, outgoing: [], incoming: [], credited: false, bossWeek: null });
       changed = true;
     }
     const q = state.players[id];
@@ -385,12 +311,10 @@ function reconcileOwn() {
   return changed;
 }
 
-// So sieht man das Dorf des anderen (aus einer alten Saison → frisches Dorf)
 function otherFromRemote(data, name) {
-  if (!data) return normalizePlayer({ name });
-  const p = normalizePlayer(data);
-  if (p.resetId && p.resetId !== state.resetId) return normalizePlayer({ name: p.name });
-  if (p.season && p.season !== state.season.no) return normalizePlayer({ name: p.name, life: p.life });
+  if (!data) return normalizeHero({ name });
+  const p = normalizeHero(data);
+  if (p.resetId && p.resetId !== state.resetId) return normalizeHero({ name: p.name });
   return p;
 }
 
@@ -398,18 +322,17 @@ const syncHandlers = {
   connection(ok) { connected = ok; renderSyncDot(); },
   meta(m) {
     if (!m) return;
-    Object.assign(state, normalizeMeta({ startDay: m.startDay, season: m.season, hall: m.hall, raids: m.raids, team: m.team, resetId: m.resetId }));
-    botCache.clear();
+    Object.assign(state, normalizeMeta({ startDay: m.startDay, created: m.created, season: m.season, hall: m.hall, team: m.team, resetId: m.resetId }));
     resolveAll();
     render();
   },
   player(pid, data, first) {
     if (pid === game.me) {
-      // Dasselbe Dorf auf PC und Handy: der neuere Stand aus dem Netz gewinnt – auch während die App offen ist
+      // derselbe Held auf PC und Handy: der neuere Stand aus dem Netz gewinnt
       if (data && data.updatedAt > (state.players[pid].updatedAt || 0)) {
-        state.players[pid] = normalizePlayer(data);
+        state.players[pid] = normalizeHero(data);
         try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { /* ignorieren */ }
-        if (!first) toast('🔄 Dein Dorf wurde von deinem anderen Gerät aktualisiert');
+        if (!first) toast('🔄 Dein Held wurde von deinem anderen Gerät aktualisiert');
         render();
       } else if (first) pushMine();
       return;
@@ -435,20 +358,20 @@ window.addEventListener('mb-sync-ready', startSync);
 
 /* ---------- Spiel erstellen / beitreten ---------- */
 
-function inviteLink() { return `${location.origin}${location.pathname}#spiel=${game.id}`; }
+function inviteLink() { return `${location.origin}${location.pathname}#arena=${game.id}`; }
+const setupName = () => (document.getElementById('setup-name').value || '').trim().slice(0, 20);
 
 async function createGame() {
-  const name = (document.getElementById('setup-name').value || '').trim().slice(0, 20);
+  const name = setupName();
   if (!name) { toast('Gib zuerst deinen Namen ein'); return; }
   if (!window.MB_SYNC) { toast('Keine Verbindung – bitte mit Internet versuchen'); return; }
   state = freshState();
   state.players.a.name = name;
-  const id = rid() + rid();
-  saveGame({ id, me: 'a' });
-  state.current = 'a';
   state.outbox = [];
+  saveGame({ id: rid() + rid(), me: 'a' });
+  state.current = 'a';
   reconcileOwn();
-  await window.MB_SYNC.createGame(id, clean({ startDay: state.startDay, season: state.season, hall: [], raids: {}, team: {}, resetId: state.resetId }));
+  await window.MB_SYNC.createGame(game.id, clean({ startDay: state.startDay, created: state.created, season: state.season, hall: [], team: {}, resetId: state.resetId }));
   save();
   startSync();
   setupStep = 'invite';
@@ -458,7 +381,7 @@ async function createGame() {
 async function joinGame(pid) {
   const snap = joinInfo;
   const existing = snap && snap.players && snap.players[pid] && snap.players[pid].updatedAt ? snap.players[pid] : null;
-  const name = (document.getElementById('setup-name').value || '').trim().slice(0, 20);
+  const name = setupName();
   if (!name && !existing) { toast('Gib zuerst deinen Namen ein'); return; }
   const id = joinId;
   saveGame({ id, me: pid });
@@ -468,8 +391,7 @@ async function joinGame(pid) {
   state.current = pid;
   state.outbox = [];
   if (snap && snap.meta) Object.assign(state, normalizeMeta(snap.meta));
-  // Gerät gewechselt → eigenes Dorf aus dem Netz übernehmen, sonst neues Dorf
-  state.players[pid] = existing ? normalizePlayer(existing) : normalizePlayer({ name });
+  state.players[pid] = existing ? normalizeHero(existing) : normalizeHero({ name });
   for (const other of Object.keys(state.players)) {
     if (other !== pid) state.players[other] = otherFromRemote(snap && snap.players && snap.players[other], other === 'a' ? 'Spieler 1' : 'Spieler 2');
   }
@@ -477,32 +399,28 @@ async function joinGame(pid) {
   save();
   startSync();
   setupStep = null;
-  toast(`⚔️ Willkommen in Muskelburg, ${me().name}!`, true);
+  toast(`⚔️ Willkommen in der Arena, ${me().name}!`, true);
   render();
 }
 
-function playLocal() {
-  saveGame({ local: true });
-  setupStep = null;
-  render();
-}
+function playLocal() { saveGame({ local: true }); setupStep = null; render(); }
 
 async function shareInvite() {
   const url = inviteLink();
   try {
-    if (navigator.share) { await navigator.share({ title: 'Muskelburg', text: 'Spiel mit mir Muskelburg! 💪🏰', url }); return; }
+    if (navigator.share) { await navigator.share({ title: 'Muskelburg', text: 'Komm in die Arena! 💪⚔️', url }); return; }
   } catch (e) { /* abgebrochen */ }
   try { await navigator.clipboard.writeText(url); toast('🔗 Link kopiert'); } catch (e) { prompt('Diesen Link schicken:', url); }
 }
 
 function leaveGame() {
-  if (!confirm('Dieses Handy vom Spiel abmelden? Dein Dorf bleibt online gespeichert – mit dem Einladungslink kommst du wieder rein.')) return;
+  if (!confirm('Dieses Gerät vom Spiel abmelden? Dein Held bleibt online gespeichert – mit dem Einladungslink kommst du wieder rein.')) return;
   try { localStorage.removeItem(GAME_KEY); localStorage.removeItem(KEY); } catch (e) { /* ignorieren */ }
   location.reload();
 }
 
-let setupStep = null; // 'invite' nach dem Erstellen
-let joinId = (location.hash.match(/spiel=([a-z0-9]+)/) || [])[1] || null;
+let setupStep = null;
+let joinId = (location.hash.match(/arena=([a-z0-9]+)/) || [])[1] || null;
 if (joinId && game && game.id === joinId) { joinId = null; history.replaceState(null, '', location.pathname + location.search); }
 
 /* =========================================================
@@ -511,138 +429,7 @@ if (joinId && game && game.id === joinId) { joinId = null; history.replaceState(
 
 const sum = o => Object.values(o).reduce((a, b) => a + b, 0);
 const byId = (list, id) => list.find(x => x.id === id);
-const num = n => n.toLocaleString('de-DE');
-
-function costOf(b, level) {
-  const c = {};
-  for (const r in b.base) c[r] = Math.max(5, Math.round(b.base[r] * COST_FACTOR ** level / 5) * 5);
-  return c;
-}
-function capacity(v) { return Math.round(400 * 1.35 ** v.lv.speicher / 10) * 10; }
-function mult(v, r) { return 1 + BOOST_PER_LEVEL * (v.lv[BOOSTED_BY[r]] || 0); }
-function points(v) { return Math.floor(v.spent / 10); }
-
-function check(v, b) {
-  const level = v.lv[b.id];
-  if (level >= b.max) return { ok: false, blocked: 'Maximalstufe erreicht' };
-  for (const [id, n] of Object.entries(b.req || {})) {
-    if (v.lv[id] < n) return { ok: false, blocked: `Benötigt ${byId(BUILDINGS, id).name} Stufe ${n}` };
-  }
-  if (b.id !== 'haupthaus' && level >= v.lv.haupthaus) {
-    return { ok: false, blocked: `Erst Haupthaus auf Stufe ${level + 1} ausbauen` };
-  }
-  const cost = costOf(b, level);
-  if (Object.values(cost).some(x => x > capacity(v))) {
-    return { ok: false, cost, blocked: 'Speicher zu klein – erst Speicher ausbauen' };
-  }
-  const missing = {};
-  for (const r in cost) if (v.res[r] < cost[r]) missing[r] = cost[r] - v.res[r];
-  const busy = v.queue.length >= slots(v) || v.queue.some(q => q.id === b.id);
-  return { ok: !Object.keys(missing).length && !busy, cost, missing, busy };
-}
-
-// Baustellen: eine, ab Haupthaus 10 zwei gleichzeitig
-function slots(v) { return v.lv.haupthaus >= SECOND_SLOT_HQ ? 2 : 1; }
-const inBuild = (v, id) => v.queue.find(q => q.id === id);
-
-function buildMinutes(v, b) {
-  if (b.time) return b.time;
-  return BUILD_BASE_MIN * BUILD_TIME_FACTOR ** v.lv[b.id] * HQ_SPEEDUP ** (v.lv.haupthaus - 1);
-}
-
-/* ---------- Ränge, Wochenziel, Abzeichen ---------- */
-
-function rankOf(life) { return [...RANKS].reverse().find(r => life.rounds >= r.min); }
-function nextRank(life) { return RANKS.find(r => r.min > life.rounds); }
-function earnedBadges(life) { return BADGES.filter(b => b.test(life)); }
-
-function weekKey(d = new Date()) {
-  const x = new Date(d);
-  x.setDate(x.getDate() - (x.getDay() + 6) % 7); // Montag dieser Woche
-  return todayStr(x);
-}
-function prevWeekKey() { const d = new Date(); d.setDate(d.getDate() - 7); return weekKey(d); }
-function currentStreak(life) {
-  return life.lastGoalWeek === weekKey() || life.lastGoalWeek === prevWeekKey() ? life.streak : 0;
-}
-function chestFor(streak) {
-  const f = 1 + 0.25 * Math.min(4, Math.max(0, streak - 1));
-  const c = {};
-  for (const r in WEEK_CHEST) c[r] = Math.round(WEEK_CHEST[r] * f);
-  return c;
-}
-
-// gemeinsame Trainingstage beider Spieler in einer Woche
-function teamDays(wk = weekKey()) { return sum(Object.values(state.players).map(p => p.life.weeks[wk] || 0)); }
-
-/* ---------- Saison ---------- */
-
-function seasonEndDay() {
-  const d = new Date(state.startDay + 'T12:00');
-  d.setDate(d.getDate() + state.season.weeks * 7);
-  return todayStr(d);
-}
-function daysLeft() { return daysBetween(todayStr(), seasonEndDay()); }
-function idOf(v) { return Object.keys(state.players).find(id => state.players[id] === v); }
-
-function standings() {
-  return [
-    ...Object.entries(state.players).map(([id, p]) => ({ icon: rankOf(p.life).icon, name: p.name, v: p, pid: id })),
-    ...BOTS.map(bot => ({ icon: bot.icon, name: bot.name, v: simulateBot(bot, gameDay()), bot })),
-  ].sort((x, y) => points(y.v) - points(x.v));
-}
-
-function declareWinner(name, how, pid) {
-  state.season.winner = { name, how, pid: pid || null };
-  metaSet({ 'season/winner': state.season.winner });
-}
-
-// Saisonsieg und Teamtruhe abholen (jedes Handy für sein eigenes Dorf)
-function claimRewards(p) {
-  let changed = false;
-  const w = state.season.winner;
-  if (w && w.pid === idOf(p) && !p.credited) { p.credited = true; p.life.seasonsWon++; changed = true; }
-  const wk = weekKey();
-  if (state.team[wk] && !p.teamClaimed[wk]) {
-    p.teamClaimed[wk] = true;
-    const got = addRes(p, TEAM_CHEST).got;
-    if (p === me()) toast(`🤝 Teamziel geschafft! Teamtruhe: ${fmtRes(got, '+')}`, true);
-    changed = true;
-  }
-  return changed;
-}
-
-function checkSeasonEnd() {
-  if (state.season.winner || daysLeft() > 0) return false;
-  const best = standings()[0];
-  declareWinner(best.name, `hatte am Saisonende die meisten Punkte (${num(points(best.v))})`, best.pid);
-  return true;
-}
-
-function applyBuild(v, b, cost) {
-  for (const r in cost) v.res[r] -= cost[r];
-  v.lv[b.id]++;
-  v.spent += sum(cost);
-}
-
-// Fehlende Rohstoffe in Trainings umrechnen, z. B. „2× Milon-Zirkel“
-function missingAsWorkouts(v, missing) {
-  const need = {};
-  for (const [r, m] of Object.entries(missing)) {
-    const a = byId(ACTIVITIES, MAIN_SOURCE[r]);
-    need[a.id] = Math.max(need[a.id] || 0, Math.ceil(m / (a.gives[r] * mult(v, r))));
-  }
-  return Object.entries(need).map(([id, n]) => `${n}× ${byId(ACTIVITIES, id).name}`);
-}
-
-function nextGoal(v) {
-  return BUILDINGS
-    .map(b => ({ b, c: check(v, b) }))
-    .filter(o => !o.c.blocked)
-    .sort((x, y) => sum(x.c.cost) - sum(y.c.cost))[0];
-}
-
-/* ---------- Bots: deterministisch aus Spieltag berechnet ---------- */
+const num = n => Math.round(n).toLocaleString('de-DE');
 
 function hash01(str) {
   let h = 2166136261;
@@ -651,340 +438,212 @@ function hash01(str) {
   return (h >>> 0) / 4294967296;
 }
 
-const botCache = new Map();
-function simulateBot(bot, days) {
-  const key = `${state.startDay}:${state.season.no}:${bot.id}:${days}`;
-  if (botCache.has(key)) return botCache.get(key);
-  const v = newVillage(bot.name);
-  const seed = bot.id + (state.season.no > 1 ? state.season.no : ''); // jede Saison etwas anders
-  for (let d = 0; d < days; d++) {
-    if (hash01(seed + ':' + d) < bot.rest) continue; // Ruhetag
-    const amount = bot.perDay * (0.6 + 0.8 * hash01(seed + '#' + d));
-    const cap = capacity(v);
-    for (const r in RES) v.res[r] = Math.min(cap, v.res[r] + Math.round(amount * BOT_SPLIT[r] * mult(v, r)));
-    for (let guard = 0; guard < 30; guard++) {
-      const best = BUILDINGS.map(b => ({ b, c: check(v, b) }))
-        .filter(o => o.c.ok && !o.b.goal && o.b.max > 1)
-        .sort((x, y) => sum(x.c.cost) * (x.b.id === bot.prefer ? 0.5 : 1) - sum(y.c.cost) * (y.b.id === bot.prefer ? 0.5 : 1))[0];
-      if (!best) break;
-      applyBuild(v, best.b, best.c.cost);
-    }
+function levelOf(p) { return 1 + Math.floor(Math.sqrt(p.xp / 4)); }
+function xpFor(level) { return 4 * (level - 1) ** 2; }
+function rankOf(life) { return [...RANKS].reverse().find(r => life.sessions >= r.min); }
+function nextRank(life) { return RANKS.find(r => r.min > life.sessions); }
+function earnedBadges(life) { return BADGES.filter(b => b.test(life)); }
+function idOf(p) { return Object.keys(state.players).find(id => state.players[id] === p); }
+
+function weekKey(d = new Date()) {
+  const x = new Date(d);
+  x.setDate(x.getDate() - (x.getDay() + 6) % 7);
+  return todayStr(x);
+}
+function prevWeekKey() { const d = new Date(); d.setDate(d.getDate() - 7); return weekKey(d); }
+function currentStreak(life) { return life.lastGoalWeek === weekKey() || life.lastGoalWeek === prevWeekKey() ? life.streak : 0; }
+function chestFor(streak) { return Math.round(WEEK_CHEST * (1 + 0.25 * Math.min(4, Math.max(0, streak - 1)))); }
+function teamDays(wk = weekKey()) { return sum(Object.values(state.players).map(p => p.life.weeks[wk] || 0)); }
+
+function doneToday(p, id) { return p.log.filter(e => e.kind === 'train' && e.id === id && todayStr(new Date(e.t)) === todayStr()).length; }
+function healthDone(p, id) { return p.log.some(e => e.kind === 'health' && e.id === id && todayStr(new Date(e.t)) === todayStr()); }
+
+// Aufhol-Bonus: wer im Level hinter dem anderen Spieler liegt, bekommt mehr Wertepunkte
+function catchUp(p) {
+  const others = Object.values(state.players).filter(x => x !== p);
+  const lead = Math.max(...others.map(levelOf));
+  return Math.min(CATCHUP_MAX, Math.max(0, lead - levelOf(p)) * CATCHUP_PER_LEVEL);
+}
+
+function itemOf(id) { return id && byId(ITEMS, id); }
+function equipped(p) { return Object.values(p.equip).map(itemOf).filter(Boolean); }
+function needProgress(p, item) { const n = NEEDS[item.need.what]; return { have: n.count(p), n: item.need.n, label: n.label }; }
+function unlocked(p, item) { const g = needProgress(p, item); return g.have >= g.n; }
+
+/* ---------- Kämpfer & Kampf ---------- */
+
+// Alles, was im Kampf zählt – als Momentaufnahme (wird bei Herausforderungen mitgeschickt)
+function fighterOf(p) {
+  const bonus = { A: 0, B: 0, C: 0 };
+  let luck = 0, reveal = false;
+  for (const it of equipped(p)) {
+    for (const t in bonus) bonus[t] += (it.bonus[t] || 0) + (it.bonus.all || 0);
+    luck += it.luck || 0;
+    reveal = reveal || !!it.reveal;
   }
-  botCache.set(key, v);
-  return v;
+  return {
+    name: p.name, icon: '🦸', level: levelOf(p), stats: { ...p.stats }, bonus, luck, reveal,
+    exp: Math.min(EXP_MAX, p.life.fights * EXP_PER_FIGHT), wounds: p.wounds, ruhm: p.ruhm,
+    items: equipped(p).map(i => i.id), favorite: p.tactics[0],
+  };
 }
-// Bot-Dorf zu einem bestimmten Zeitpunkt
-const botAt = (bot, t = Date.now()) => simulateBot(bot, Math.max(0, daysBetween(state.startDay, todayStr(new Date(t)))));
 
-/* ---------- Truppen & Kampf ---------- */
-
-function unitCost(v, u) {
-  const discount = 1 - 0.05 * Math.min(10, Math.max(0, v.lv[u.at] - 1));
-  const c = {};
-  for (const r in u.cost) c[r] = Math.round(u.cost[r] * discount);
-  return c;
+function botStats(bot, growth) {
+  const [s, e, m] = bot.base;
+  return { str: s + growth, end: e + growth, mind: m + growth };
 }
-function wallMult(v, rams = 0) { return 1 + WALL_BONUS * Math.max(0, (v.lv.wall || 0) - rams); }
-function posOf(id) { return MAP_POS[id] || byId(RUINS, id).pos; }
-function distance(a, b) { const [p, q] = [posOf(a), posOf(b)]; return Math.hypot(p[0] - q[0], p[1] - q[1]); }
-function gameDay() { return daysBetween(state.startDay, todayStr()); }
-const H_MS = 3600e3;
-
-// Kampfgeist: wer einen viel Schwächeren angreift, kämpft schwächer (bis −50 %)
-function morale(attPts, defPts) {
-  return Math.min(1, Math.max(0.5, 0.4 + 0.6 * (defPts + 50) / (attPts + 50)));
+function fighterOfBot(bot) {
+  const days = Math.max(0, daysBetween(state.created, todayStr()));
+  const st = botStats(bot, bot.grow * days);
+  const lvl = 1 + Math.floor(Math.sqrt((sum(st) - 3 * BASE_STAT) / 4));
+  return { name: bot.name, icon: bot.icon, level: Math.max(1, lvl), stats: st, bonus: { A: 0, B: 0, C: 0 }, luck: 0,
+    exp: 0.05, wounds: 0, ruhm: bot.ruhm, items: [], bot, favorite: 'ABC'[bot.w.indexOf(Math.max(...bot.w))] };
 }
-const shielded = (p, t = Date.now()) => p.shieldUntil > t;
-const calm = p => p.calmUntil > Date.now();
-function humanDef(p) {
-  return (MILITIA * p.lv.haupthaus + UNITS.reduce((s, u) => s + p.units[u.id] * u.def, 0)) * (calm(p) ? 1 + CALM_BONUS : 1);
+function bossOfWeek() {
+  const wk = weekKey();
+  const boss = BOSSES[Math.floor(daysBetween('2026-01-05', wk) / 7) % BOSSES.length];
+  const lvl = Math.max(...Object.values(state.players).map(levelOf));
+  const f = 1 + 0.08 * lvl;
+  const st = { str: boss.base[0] * f, end: boss.base[1] * f, mind: boss.base[2] * f };
+  return { name: boss.name, icon: boss.icon, level: lvl + 3, stats: st, bonus: { A: 0, B: 0, C: 0 }, luck: 0, exp: 0.1,
+    wounds: 0, ruhm: 1500, items: [], bot: boss, boss: true, favorite: 'ABC'[boss.w.indexOf(Math.max(...boss.w))] };
 }
-function trimReports(v) { v.reports.length = Math.min(v.reports.length, 30); }
 
-// Verteidigung und mögliche Beute eines Ziels (Rammböcke senken den Wall-Bonus)
-function targetOf(id, rams = 0, at = Date.now()) {
-  const regen = Math.min(1, (at - (state.raids[id] || 0)) / (LOOT_REGEN_H * H_MS));
-  const pool = {};
-  const p = state.players[id];
-  if (p) {
-    for (const r in RES) pool[r] = Math.floor(p.res[r] * PLAYER_LOOT_SHARE);
-    return { name: p.name, def: Math.round(humanDef(p) * wallMult(p, rams)), pool };
+// Bot wählt Taktiken nach Vorliebe (und etwas Zufall)
+function botTactics(bot, seed) {
+  const total = sum(bot.w);
+  return [0, 1, 2].map(i => {
+    let r = hash01(`${seed}:bt${i}`) * total;
+    for (let k = 0; k < 3; k++) if ((r -= bot.w[k]) < 0) return 'ABC'[k];
+    return 'C';
+  });
+}
+
+// Wert einer Taktik ohne Glück – für die Vorschau
+function tacticPower(f, t, challenger = false) {
+  return (f.stats[TACTICS[t].stat] + f.bonus[t]) * (1 + f.exp) * (1 - WOUND_MALUS * f.wounds) * (challenger ? 1 + CHALLENGER_BONUS : 1);
+}
+
+// 3 Runden; wer mehr Runden gewinnt, gewinnt den Kampf. seed macht das Ergebnis auf beiden Handys gleich
+function fight(att, def, attT, defT, seed) {
+  const rounds = [];
+  let aw = 0, dw = 0, at = 0, dt = 0;
+  for (let i = 0; i < 3; i++) {
+    const [a, d] = [attT[i], defT[i]];
+    const ma = TACTICS[a].beats === d ? T_WIN : TACTICS[d].beats === a ? T_LOSE : 1;
+    const md = TACTICS[d].beats === a ? T_WIN : TACTICS[a].beats === d ? T_LOSE : 1;
+    const la = LUCK_MIN + att.luck + (LUCK_SPAN - att.luck) * hash01(`${seed}:a${i}`);
+    const ld = LUCK_MIN + def.luck + (LUCK_SPAN - def.luck) * hash01(`${seed}:d${i}`);
+    const as = Math.round(tacticPower(att, a, true) * ma * la);
+    const ds = Math.round(tacticPower(def, d) * md * ld);
+    if (as >= ds) aw++; else dw++;
+    at += as; dt += ds;
+    rounds.push({ a, d, as, ds });
   }
-  const bot = byId(BOTS, id);
-  if (bot) {
-    const v = botAt(bot, at);
-    for (const r in RES) pool[r] = Math.floor(v.res[r] * 0.4 * regen);
-    return { name: bot.name, def: Math.round(BOT_DEF * v.lv.haupthaus ** 1.3 * bot.dm * wallMult(v, rams)), pool };
-  }
-  const ruin = byId(RUINS, id);
-  for (const r in ruin.loot) pool[r] = Math.floor(ruin.loot[r] * regen);
-  return { name: ruin.name, def: ruin.def, pool };
+  return { rounds, attWin: aw > dw || (aw === dw && at >= dt) };
 }
 
-function lootFrom(pool, carry) {
-  const total = sum(pool);
-  const ratio = total ? Math.min(1, carry / total) : 0;
-  const loot = {};
-  for (const r in pool) loot[r] = Math.floor(pool[r] * ratio);
-  return loot;
+function eloDelta(winner, loser, k = 32) {
+  const exp = 1 / (1 + 10 ** ((loser - winner) / 400));
+  return Math.max(4, Math.round(k * (1 - exp)));
 }
 
-// Verluste der Verteidiger; wer verliert, behält bei knappen Kämpfen noch einen Teil
-function hitDefender(p, defLoss) {
-  const lost = {};
-  for (const u of UNITS) {
-    const n = p.units[u.id];
-    p.units[u.id] = Math.round(n * (1 - Math.min(1, defLoss)));
-    if (n - p.units[u.id]) lost[u.id] = n - p.units[u.id];
+// Ergebnis für einen Helden verbuchen (Ruhm, Taler, Verletzung, Bericht)
+function bookFight(p, { win, opp, rounds, mineAtt, delta, kind, taler }) {
+  p.life.fights++;
+  if (win) p.life.wins++;
+  if (kind === 'human') p.life.duels++;
+  p.ruhm = Math.max(0, p.ruhm + (win ? delta : -delta));
+  p.taler += taler;
+  let wound = false;
+  if (!win && p.wounds < WOUND_MAX) {
+    p.wounds++;
+    p.woundAt = Date.now();
+    wound = true;
   }
-  return lost;
+  const r = { t: Date.now(), id: rid(), opp: opp.name, oppIcon: opp.icon, kind, win, rounds, mineAtt, delta: win ? delta : -delta, taler, wound };
+  p.reports.unshift(r);
+  p.reports.length = Math.min(p.reports.length, 30);
+  return r;
 }
 
-function battle(v, m) {
-  const defender = state.players[m.target];
-  m.done = true;
-  if (defender && shielded(defender, m.arrive)) { // Schutzschild: Truppen kehren um
-    m.survivors = { ...m.units };
-    m.loot = {};
-    v.reports.unshift({ t: m.arrive, name: defender.name, shield: true, sent: m.units, lost: {}, loot: {} });
-    trimReports(v);
-    if (v === me()) toast(`🛡️ ${defender.name} steht unter Schutzschild – Truppen kehren um`, true);
-    return;
-  }
-  const t = targetOf(m.target, m.units.ramme || 0, m.arrive);
-  const mor = defender ? morale(points(v), points(defender)) : 1;
-  const att = Math.max(1, Math.round(UNITS.reduce((s, u) => s + (m.units[u.id] || 0) * u.att, 0) * mor));
-  const win = att > t.def;
-  // klare Überlegenheit = wenig Verluste (doppelt so stark → ca. 15 % Verlust)
-  const attLoss = win ? 0.6 * (t.def / att) ** 2 : 1;
-  const defLoss = win ? 1 - 0.5 * t.def / att : 0.6 * (att / t.def) ** 2;
+/* ---------- Duelle gegen Menschen ---------- */
 
-  const survivors = {}, lost = {};
-  for (const [id, n] of Object.entries(m.units)) {
-    survivors[id] = Math.round(n * (1 - attLoss));
-    lost[id] = n - survivors[id];
-  }
-  const loot = win ? lootFrom(t.pool, UNITS.reduce((s, u) => s + (survivors[u.id] || 0) * u.carry, 0)) : {};
-
-  let wallDown = 0;
-  if (win) v.life.raidsWon++;
-  if (defender) {
-    if (win) wallDown = Math.min(defender.lv.wall, Math.floor((survivors.ramme || 0) / 2));
-    sendEvent(m.target, { kind: 'hit', t: m.arrive, name: v.name, attWin: win, defLoss, loot, wallDown,
-      shieldUntil: win ? m.arrive + SHIELD_H * H_MS : 0 });
-  } else {
-    if (win) { state.raids[m.target] = m.arrive; metaSet({ ['raids/' + m.target]: m.arrive }); }
-    const bot = byId(BOTS, m.target);
-    if (bot) revenge(bot, idOf(v), m.arrive); // Bots schlagen zurück
-  }
-
-  m.survivors = survivors;
-  m.loot = loot;
-  if (!sum(survivors)) m.back = m.arrive; // niemand kehrt zurück
-  v.reports.unshift({ t: m.arrive, name: t.name, win, att, def: t.def, sent: m.units, lost, loot, wallDown, morale: mor < 1 ? mor : 0 });
-  trimReports(v);
-  if (v === me()) toast(win ? `⚔️ Sieg gegen ${t.name}!` : `💀 Niederlage gegen ${t.name}`, true);
+// Ergebnis beim Herausforderer verbuchen (kommt vom anderen Handy oder nach Ablauf der Frist)
+function finishHumanDuel(p, res) {
+  const o = p.outgoing.find(x => x.id === res.id);
+  if (!o) return;
+  p.outgoing = p.outgoing.filter(x => x !== o);
+  const r = bookFight(p, { win: res.attWin, opp: { name: res.defName, icon: '🦸' }, rounds: res.rounds, mineAtt: true,
+    delta: res.delta, kind: 'human', taler: res.attWin ? 25 : 5 });
+  if (res.auto) r.auto = true;
+  if (p === me()) { freshReport = r.id; toast(res.attWin ? `🏆 Duell gegen ${res.defName} gewonnen!` : `💀 Duell gegen ${res.defName} verloren`, true); }
 }
 
-function launchMission(v, targetId, units, start, auto) {
-  const travel = travelTime(units, distance(idOf(v), targetId));
-  for (const id in units) v.units[id] -= units[id];
-  const name = targetOf(targetId).name;
-  v.missions.push({ target: targetId, name, units, start, arrive: start + travel, back: start + 2 * travel, auto: !!auto });
-  return name;
+// Kampf zwischen Herausforderung d und Verteidiger p austragen
+function resolveDuel(d, defender, defT, auto) {
+  const def = fighterOf(defender);
+  const res = fight(d.snap, def, d.tactics, defT, d.id);
+  const delta = res.attWin ? eloDelta(d.snap.ruhm, defender.ruhm) : eloDelta(defender.ruhm, d.snap.ruhm);
+  return { id: d.id, rounds: res.rounds, attWin: res.attWin, delta, attName: d.fromName, defName: defender.name, auto };
 }
 
-// Ankünfte und Rückkehr abarbeiten; true, wenn sich etwas geändert hat
-function resolveMissions() {
-  const now = Date.now();
+// Abgelaufene Herausforderungen: der Herausforderer entscheidet mit der Standard-Taktik des anderen
+function expireDuels(p) {
   let changed = false;
-  // mehrere Durchläufe, damit Daueraufträge auch nach langer Pause korrekt weiterlaufen
-  for (let pass = 0; pass < 100; pass++) {
-    let any = false;
-    for (const v of mine()) {
-      for (const m of v.missions.filter(m => !m.done && now >= m.arrive).sort((a, b) => a.arrive - b.arrive)) {
-        battle(v, m);
-        any = true;
-      }
-      const back = v.missions.filter(m => m.done && now >= m.back);
-      v.missions = v.missions.filter(m => !back.includes(m));
-      for (const m of back) {
-        for (const id in m.survivors) v.units[id] += m.survivors[id];
-        const cap = capacity(v);
-        for (const r in m.loot) v.res[r] = Math.min(cap, v.res[r] + m.loot[r]);
-        any = true;
-        // Dauerauftrag: gleich wieder losschicken
-        if (m.auto && !m.stop && v.lv.zelt) {
-          const units = {};
-          for (const id in m.units) { const n = Math.min(m.units[id], v.units[id]); if (n) units[id] = n; }
-          if (sum(units)) { launchMission(v, m.target, units, m.back, true); continue; }
-        }
-        if (v === me() && sum(m.survivors) && now - m.back < 60e3) toast(`🏇 Truppen zurück ${fmtRes(m.loot, '+')}`, true);
-      }
-    }
-    if (!any) break;
+  for (const o of p.outgoing.filter(o => Date.now() > o.deadline)) {
+    const defender = state.players[o.to];
+    const res = resolveDuel(o, defender, defender.tactics, true);
+    finishHumanDuel(p, res);
+    sendEvent(o.to, { kind: 'result', result: res, defSide: true });
     changed = true;
   }
   return changed;
 }
 
-// Fertige Baustellen abschließen
-function finishBuilds() {
-  const now = Date.now();
+/* ---------- Belohnungen & Zeit ---------- */
+
+function claimRewards(p) {
   let changed = false;
-  for (const v of mine()) {
-    for (const q of v.queue.filter(q => now >= q.end)) {
-      const b = byId(BUILDINGS, q.id);
-      v.lv[q.id] = q.level;
-      v.spent += sum(q.cost);
-      v.queue = v.queue.filter(x => x !== q);
-      changed = true;
-      if (v === me()) toast(`🎉 ${b.name} ist jetzt Stufe ${q.level}!`, true);
-      if (b.goal) {
-        v.life.monuments++;
-        if (!state.season.winner) declareWinner(v.name, 'hat als Erste/r die Stahlstatue errichtet', idOf(v));
-      }
-    }
+  const w = state.season.winner;
+  if (w && w.pid === idOf(p) && !p.credited) { p.credited = true; p.life.seasonsWon++; changed = true; }
+  const wk = weekKey();
+  if (state.team[wk] && !p.teamClaimed[wk]) {
+    p.teamClaimed[wk] = true;
+    p.taler += TEAM_CHEST;
+    p.energy = Math.min(ENERGY_MAX, p.energy + 1);
+    if (p === me()) toast(`🤝 Teamziel geschafft! +${TEAM_CHEST} 🪙 und +1 ⚡`, true);
+    changed = true;
   }
+  // Verletzungen heilen mit der Zeit von allein
+  if (p.wounds && Date.now() - p.woundAt > WOUND_HEAL_H * H_MS) { p.wounds--; p.woundAt = Date.now(); changed = true; }
   return changed;
 }
 
-/* ---------- Bots greifen an ---------- */
+function seasonEndDay() { const d = new Date(state.startDay + 'T12:00'); d.setDate(d.getDate() + state.season.weeks * 7); return todayStr(d); }
+function daysLeft() { return daysBetween(todayStr(), seasonEndDay()); }
 
-function slotStart(k) { return new Date(state.startDay + 'T00:00').getTime() + k * BOT_SLOT_H * H_MS; }
-function currentSlot(t = Date.now()) { return Math.floor((t - slotStart(0)) / (BOT_SLOT_H * H_MS)); }
-function botTravel(bot, pid) { return Math.round(distance(bot.id, pid) * 5 * 60e3); } // 5 Min. je Feld
+function standings() {
+  return [
+    ...Object.entries(state.players).map(([pid, p]) => ({ pid, name: p.name, icon: rankOf(p.life).icon, ruhm: p.ruhm, level: levelOf(p), info: rankOf(p.life).name })),
+    ...BOTS.map(b => ({ name: b.name, icon: b.icon, ruhm: b.ruhm, level: fighterOfBot(b).level, info: 'Bot · ' + b.info, bot: true })),
+  ].sort((x, y) => y.ruhm - x.ruhm);
+}
 
-// Jedes 12-Stunden-Fenster: angriffslustige Bots suchen sich ein Ziel – am liebsten den Führenden
-function scheduleBotAttacks(p) {
-  const cur = currentSlot();
-  if (p.botSlot === null) { p.botSlot = cur; return true; }
-  if (cur <= p.botSlot) return false;
-  const pid = idOf(p);
-  // Anteil an den Angriffen: wer mehr Punkte hat, wird öfter angegriffen
-  const weight = x => (points(x) + 20) ** 1.5;
-  const share = weight(p) / sum(Object.values(state.players).map(weight));
-  for (let k = p.botSlot + 1; k <= cur; k++) {
-    const t0 = slotStart(k);
-    if (daysBetween(state.startDay, todayStr(new Date(t0))) < NEWBIE_DAYS || points(p) < 30) continue;
-    for (const bot of BOTS) {
-      if (hash01(`atk:${state.season.no}:${bot.id}:${k}:${pid}`) >= bot.aggr * share) continue;
-      if (p.incoming.length >= 2 || p.incoming.some(a => a.bot === bot.id)) continue;
-      const launch = t0 + hash01(`when:${bot.id}:${k}:${pid}`) * BOT_SLOT_H * H_MS;
-      p.incoming.push({ bot: bot.id, target: pid, kind: 'raid', launch, arrive: launch + botTravel(bot, pid) });
-    }
-  }
-  p.botSlot = cur;
+function checkSeasonEnd() {
+  if (state.season.winner || daysLeft() > 0) return false;
+  const best = standings()[0];
+  state.season.winner = { name: best.name, how: `hatte am Saisonende den meisten Ruhm (${num(best.ruhm)})`, pid: best.pid || null };
+  metaSet({ 'season/winner': state.season.winner });
   return true;
 }
 
-// Gegenschlag, wenn jemand ein Bot-Dorf angreift
-function revenge(bot, pid, at) {
-  const p = state.players[pid];
-  if (at - (p.revenge[bot.id] || 0) < REVENGE_COOLDOWN_H * H_MS) return;
-  p.revenge[bot.id] = at;
-  const launch = at + (30 + 90 * Math.random()) * 60e3;
-  p.incoming.push({ bot: bot.id, target: pid, kind: 'revenge', launch, arrive: launch + botTravel(bot, pid) });
-}
-
-function botPower(bot, p, at) {
-  const bv = botAt(bot, at);
-  const mor = morale(points(bv), points(p));
-  return { att: Math.round(BOT_ATT * bv.lv.haupthaus ** 1.3 * bot.am * mor), mor };
-}
-
-function botBattle(a) {
-  const bot = byId(BOTS, a.bot);
-  const p = state.players[a.target];
-  const base = { t: a.arrive, incoming: true, name: bot.name, revenge: a.kind === 'revenge', lost: {}, loot: {} };
-  if (shielded(p, a.arrive)) {
-    p.reports.unshift({ ...base, win: true, shield: true });
-  } else {
-    const { att } = botPower(bot, p, a.arrive);
-    const def = Math.round(humanDef(p) * wallMult(p));
-    const botWins = att > def;
-    const lost = hitDefender(p, botWins ? 1 - 0.5 * def / att : 0.6 * (att / def) ** 2);
-    let loot = {}, bonus = {};
-    if (botWins) {
-      const pool = {};
-      for (const r in RES) pool[r] = Math.floor(p.res[r] * PLAYER_LOOT_SHARE);
-      loot = lootFrom(pool, att * BOT_CARRY);
-      for (const r in loot) p.res[r] -= loot[r];
-      p.shieldUntil = a.arrive + SHIELD_H * H_MS;
-    } else {
-      // abgewehrt: die Angreifer lassen Beute zurück
-      for (const r in RES) bonus[r] = Math.round(att * 1.5 * BOT_SPLIT[r]);
-      bonus = addRes(p, bonus).got;
-      p.life.raidsWon++;
-    }
-    p.reports.unshift({ ...base, win: !botWins, att, def, lost, loot, bonus, shieldOn: botWins });
-    if (p === me()) toast(botWins ? `🔥 ${bot.name} hat dich überfallen!` : `🛡️ Angriff von ${bot.name} abgewehrt!`, true);
-  }
-  trimReports(p);
-}
-
-function resolveIncoming(p) {
-  const now = Date.now();
-  const due = p.incoming.filter(a => now >= a.arrive).sort((x, y) => x.arrive - y.arrive);
-  if (!due.length) return false;
-  p.incoming = p.incoming.filter(a => !due.includes(a));
-  due.forEach(botBattle);
-  return true;
-}
-// Angriffe, die schon unterwegs (und damit sichtbar) sind
-const incomingFor = pid => state.players[pid].incoming.filter(a => a.launch <= Date.now()).sort((x, y) => x.arrive - y.arrive);
-
-/* ---------- Automatisierungen ---------- */
-
-// Rohstoffgebäude liefern ein wenig von allein – Training bleibt der Turbo
-function passivePerDay(v, r) { return byId(ACTIVITIES, 'milon').gives[r] * PASSIVE_SHARE * (v.lv[BOOSTED_BY[r]] || 0); }
-function passive(v, now = Date.now()) {
-  const dt = (now - v.passiveAt) / DAY_MS;
-  v.passiveAt = now;
-  if (dt <= 0) return false;
-  const cap = capacity(v);
-  let changed = false;
-  for (const r in RES) {
-    const x = (v.pacc[r] || 0) + passivePerDay(v, r) * dt;
-    const whole = Math.floor(x);
-    v.pacc[r] = x - whole;
-    if (whole && v.res[r] < cap) { v.res[r] = Math.min(cap, v.res[r] + whole); changed = true; }
-  }
-  return changed;
-}
-
-// Überschüssige Rohstoffe automatisch zu Truppen machen
-function autoRecruit(v) {
-  const u = v.autoRecruit && byId(UNITS, v.autoRecruit);
-  if (!u || v.life.rounds < AUTO_RECRUIT_RANK || v.lv[u.at] < (u.req || 1)) return false;
-  const cap = capacity(v);
-  if (Object.keys(RES).some(r => v.res[r] < cap * AUTO_RECRUIT_FULL)) return false;
-  const c = unitCost(v, u);
-  const n = Math.min(...Object.keys(c).map(r => Math.floor((v.res[r] - cap * AUTO_RECRUIT_KEEP) / c[r])));
-  if (n < 1) return false;
-  const total = {};
-  for (const r in c) { total[r] = c[r] * n; v.res[r] -= total[r]; }
-  v.units[u.id] += n;
-  v.log.unshift({ t: Date.now(), kind: 'autorecruit', id: u.id, n, cost: total });
-  v.log.length = Math.min(v.log.length, 200);
-  if (v === me()) toast(`⚙️ Speicher voll – automatisch ${n}× ${u.name} ausgebildet`);
-  return true;
-}
-
-// Alles abarbeiten, was inzwischen passiert ist
 function resolveAll() {
-  if (!game) return false; // noch kein Spiel gewählt
+  if (!game) return false;
   let changed = reconcileOwn();
-  for (const v of mine()) {
-    changed = passive(v) || changed;
-    changed = claimRewards(v) || changed;
-  }
-  changed = finishBuilds() || changed;
-  changed = resolveMissions() || changed;
-  for (const v of mine()) {
-    changed = scheduleBotAttacks(v) || changed;
-    changed = resolveIncoming(v) || changed;
-    changed = autoRecruit(v) || changed;
+  for (const p of mine()) {
+    changed = claimRewards(p) || changed;
+    changed = expireDuels(p) || changed;
   }
   changed = checkSeasonEnd() || changed;
   if (changed) save();
@@ -995,246 +654,215 @@ function resolveAll() {
    Aktionen
    ========================================================= */
 
-// Rang-Bonus wächst jede Saison mit den Durchgängen von 50 % auf 100 %
-function rankBonus(v) { return rankOf(v.life).bonus * Math.min(1, 0.5 + 0.5 * v.rounds / RANK_RAMP_ROUNDS); }
-// Aufhol-Bonus: wer hinter dem anderen Spieler liegt, bekommt mehr
-function catchUp(v) {
-  const mine = points(v);
-  const lead = Math.max(...Object.values(state.players).filter(p => p !== v).map(points));
-  if (lead < 30 || mine >= lead) return 0;
-  return Math.min(CATCHUP_MAX, Math.floor((lead - mine) / lead * 10 + 1e-9) * CATCHUP_PER_STEP);
-}
-function doneToday(v, id) { return v.log.filter(e => e.kind === 'train' && e.id === id && todayStr(new Date(e.t)) === todayStr()).length; }
-function roundsToday(v) { return doneToday(v, 'milon'); }
-const tired = v => roundsToday(v) + 1 >= TIRED_FROM;
-
-// Ertrag eines Trainings: Gebäude × Tagesbonus × Rang × Aufholen × Müdigkeit
-// (Aufwärmen: kein Tagesbonus, keine Müdigkeit)
-function gainOf(v, a, bonus) {
-  const g = {};
-  const f = (bonus && !a.light ? 1 + DAY_BONUS : 1) * (1 + rankBonus(v)) * (1 + catchUp(v)) * (tired(v) && a.id === 'milon' ? 1 - TIRED_MALUS : 1);
-  for (const r in a.gives) g[r] = Math.round(a.gives[r] * mult(v, r) * f);
-  return g;
-}
-
-function addRes(v, amounts) {
-  const cap = capacity(v);
-  const got = {};
-  let capped = false;
-  for (const r in amounts) {
-    got[r] = Math.max(0, Math.min(amounts[r], cap - v.res[r]));
-    if (got[r] < amounts[r]) capped = true;
-    v.res[r] += got[r];
-  }
-  return { got, capped };
-}
-
 function train(arg) {
-  const [actId, course] = arg.split(':'); // z. B. „kurs:yoga“
-  const v = me();
-  const L = v.life;
+  const [actId, course] = arg.split(':');
+  const p = me();
+  const L = p.life;
   const a = byId(ACTIVITIES, actId);
-  if (a.perDay && doneToday(v, a.id) >= a.perDay) return;
-  const bonus = !a.light && v.lastDay !== todayStr(); // Tagesbonus gibt's auf das erste richtige Training
-  const rankBefore = rankOf(L);
-  const badgesBefore = earnedBadges(L).length;
-  const { got, capped } = addRes(v, gainOf(v, a, bonus));
-  const entry = { t: Date.now(), kind: 'train', id: actId, got, bonus, prevDay: v.lastDay, wk: weekKey() };
-  if (a.course) {
-    entry.course = course || 'sonstiges';
-    entry.prevCalm = v.calmUntil;
-    v.calmUntil = Date.now() + CALM_H * H_MS;
-    L.courses++;
-  }
+  if (doneToday(p, a.id) >= a.perDay) return;
+  const firstToday = p.lastDay !== todayStr();
+  const levelBefore = levelOf(p), rankBefore = rankOf(L), badgesBefore = earnedBadges(L).length;
+  const f = 1 + catchUp(p);
+  const got = {};
+  for (const s in a.gives) { got[s] = Math.round(a.gives[s] * f * 10) / 10; p.stats[s] += got[s]; }
+  p.xp += sum(got);
+  const taler = a.taler * (firstToday ? 2 : 1);
+  const energy = Math.min(ENERGY_MAX - p.energy, firstToday ? 2 : 1);
+  p.taler += taler;
+  p.energy += energy;
+  p.counts[a.id]++;
+  const entry = { t: Date.now(), kind: 'train', id: a.id, got, taler, energy, firstToday, prevDay: p.lastDay, wk: weekKey() };
+  if (a.course) entry.course = course || 'sonstiges';
+  if (a.heals && p.wounds) { p.wounds--; entry.healed = true; }
+  if (a.id === 'kurs' || a.id === 'dehnen') L.calm++;
 
-  // Training ist der Turbo für alle Baustellen (Aufwärmen: −10 Min.)
-  if (v.queue.length) {
-    entry.sped = {};
-    for (const q of v.queue) {
-      const left = q.end - Date.now();
-      const want = a.light ? TRAIN_SPEEDUP_MIN * 60e3 : Math.max(left * TRAIN_SPEEDUP_SHARE, TRAIN_SPEEDUP_MIN * 60e3);
-      const ms = Math.max(0, Math.min(left, want));
-      entry.sped[q.id] = ms;
-      q.end -= ms;
-    }
-  }
-
-  // Lebenslange Werte & Wochenziel (nur Milon-Durchgänge zählen für Rang und Trainingstage)
-  if (a.id === 'milon') { L.rounds++; v.rounds++; }
-  if (bonus) {
+  L.sessions++;
+  if (firstToday) {
     L.days++;
     L.weeks[entry.wk] = (L.weeks[entry.wk] || 0) + 1;
     if (L.weeks[entry.wk] === WEEK_GOAL_DAYS) {
-      const prev = { streak: L.streak, bestStreak: L.bestStreak, lastGoalWeek: L.lastGoalWeek };
+      entry.chest = { prev: { streak: L.streak, bestStreak: L.bestStreak, lastGoalWeek: L.lastGoalWeek } };
       L.streak = L.lastGoalWeek === prevWeekKey() ? L.streak + 1 : 1;
       L.bestStreak = Math.max(L.bestStreak, L.streak);
       L.lastGoalWeek = entry.wk;
-      entry.chest = { prev, loot: addRes(v, chestFor(L.streak)).got };
+      L.goals++;
+      entry.chest.taler = chestFor(L.streak);
+      entry.chest.energy = Math.min(1, ENERGY_MAX - p.energy);
+      p.taler += entry.chest.taler;
+      p.energy += entry.chest.energy;
     }
-    // Teamtruhe: gemeinsam genug Trainingstage → beide holen sie sich ab (claimRewards)
     if (!state.team[entry.wk] && teamDays(entry.wk) >= TEAM_GOAL_DAYS) {
       state.team[entry.wk] = true;
       metaSet({ ['team/' + entry.wk]: true });
     }
   }
-
-  v.log.unshift(entry);
-  v.log.length = Math.min(v.log.length, 200);
-  if (!a.light) v.lastDay = todayStr();
+  p.log.unshift(entry);
+  p.log.length = Math.min(p.log.length, 200);
+  p.lastDay = todayStr();
   resolveAll();
   save();
 
-  toast(`${a.icon} ${fmtRes(got, '+')}${bonus ? ' · Tagesbonus!' : ''}${capped ? ' · Speicher voll!' : ''}`);
-  if (entry.sped) toast(`⚡ Baustelle ${fmtDur(Math.max(...Object.values(entry.sped)))} schneller!`);
-  if (entry.chest) toast(`🎁 Wochenziel geschafft! Truhe: ${fmtRes(entry.chest.loot, '+')}`, true);
-  if (a.course) toast(`🕊️ Innere Ruhe: ${CALM_H} Std. +${CALM_BONUS * 100} % Verteidigung`, true);
+  toast(`${a.icon} ${fmtStats(got, '+')} · +${taler} 🪙${energy ? ` · +${energy} ⚡` : ''}${firstToday ? ' · Tagesbonus!' : ''}`);
+  if (entry.healed) toast('🩹 Eine Verletzung ist geheilt');
+  if (entry.chest) toast(`🎁 Wochenziel geschafft! +${entry.chest.taler} 🪙`, true);
+  if (levelOf(p) > levelBefore) toast(`⭐ Level ${levelOf(p)}! Dein Held wird stärker.`, true);
   const rank = rankOf(L);
-  if (rank !== rankBefore) toast(`${rank.icon} Neuer Rang: ${rank.name} – für immer +${Math.round(rank.bonus * 100)} % Rohstoffe!`, true);
+  if (rank !== rankBefore) toast(`${rank.icon} Neuer Rang: ${rank.name}!`, true);
   const badges = earnedBadges(L);
-  if (badges.length > badgesBefore) { const b = badges[badges.length - 1]; toast(`${b.icon} Abzeichen: ${b.name}!`, true); }
+  if (badges.length > badgesBefore) toast(`${badges[badges.length - 1].icon} Abzeichen: ${badges[badges.length - 1].name}!`, true);
+  const nowOpen = ITEMS.filter(it => !p.owned[it.id] && unlocked(p, it) && needProgress(p, it).have === it.need.n);
+  for (const it of nowOpen) toast(`🔓 Neu freigeschaltet: ${it.icon} ${it.name}`, true);
   render();
 }
 
-function build(bid) {
-  const v = me();
-  const b = byId(BUILDINGS, bid);
-  const c = check(v, b);
-  if (!c.ok) return;
-  const now = Date.now();
-  for (const r in c.cost) v.res[r] -= c.cost[r];
-  const level = v.lv[bid] + 1;
-  const q = { id: bid, level, cost: c.cost, start: now, end: now + buildMinutes(v, b) * 60e3 };
-  v.queue.push(q);
-  v.log.unshift({ t: now, kind: 'build', id: bid, cost: c.cost, level });
-  v.log.length = Math.min(v.log.length, 200);
+function health(id) {
+  const p = me();
+  if (healthDone(p, id)) return;
+  const h = byId(HEALTH, id);
+  const healed = p.wounds > 0;
+  if (healed) p.wounds--;
+  p.taler += 2;
+  p.log.unshift({ t: Date.now(), kind: 'health', id, healed });
   save();
-  toast(`🔨 ${b.name} Stufe ${level} im Bau – fertig in ${fmtDur(q.end - now)}`);
+  toast(`${h.icon} ${h.name} · +2 🪙${healed ? ' · 🩹 Verletzung geheilt' : ''}`);
   render();
 }
 
-function newSeason() {
-  if (!state.season.winner) return;
-  if (!confirm('Neue Saison starten? Alle Dörfer beginnen wieder bei null. Ränge, Abzeichen und Ruhmeshalle bleiben.')) return;
-  const w = state.season.winner;
-  state.hall.unshift({ no: state.season.no, name: w.name, how: w.how, day: todayStr() });
-  state.season = { no: state.season.no + 1, weeks: SEASON_WEEKS, winner: null };
-  state.startDay = todayStr();
-  state.raids = {};
-  metaSet({ hall: state.hall, season: state.season, startDay: state.startDay, raids: null });
-  reconcileOwn(); // das andere Handy zieht nach, sobald es die neue Saison sieht
-  if (!online()) for (const id in state.players) state.players[id].season = state.season.no;
+function buy(id) {
+  const p = me();
+  const it = itemOf(id);
+  if (p.owned[id] || !unlocked(p, it) || p.taler < it.cost) return;
+  p.taler -= it.cost;
+  p.owned[id] = true;
+  p.equip[it.slot] = id;
+  p.log.unshift({ t: Date.now(), kind: 'buy', id, cost: it.cost });
   save();
-  toast(`⚔️ Saison ${state.season.no} beginnt – viel Erfolg!`, true);
+  toast(`${it.icon} ${it.name} gekauft und angelegt!`, true);
   render();
 }
 
-function recruit(arg) {
-  const [uid, count] = arg.split(':');
-  const n = Number(count);
-  const v = me();
-  const u = byId(UNITS, uid);
-  const c = unitCost(v, u);
-  if (v.lv[u.at] < (u.req || 1) || Object.keys(c).some(r => v.res[r] < c[r] * n)) return;
-  const total = {};
-  for (const r in c) { total[r] = c[r] * n; v.res[r] -= total[r]; }
-  v.units[uid] += n;
-  v.log.unshift({ t: Date.now(), kind: 'recruit', id: uid, n, cost: total });
-  v.log.length = Math.min(v.log.length, 200);
-  save();
-  toast(`${u.icon} ${n}× ${u.name} ausgebildet`);
-  render();
-}
-
-function sendAll(uid) {
-  const el = document.getElementById('send-' + uid);
-  if (el) { el.value = me().units[uid]; updateAttackPreview(); }
-}
-
-function readSendInputs() {
-  const v = me();
-  const units = {};
-  for (const u of UNITS) {
-    const el = document.getElementById('send-' + u.id);
-    const n = el ? Math.max(0, Math.min(v.units[u.id], parseInt(el.value, 10) || 0)) : 0;
-    if (n) units[u.id] = n;
-  }
-  return units;
-}
-
-function travelTime(units, dist) {
-  const speed = Math.max(...Object.keys(units).map(id => byId(UNITS, id).speed));
-  return Math.round(dist * speed * 60e3);
-}
-
-function attack(targetId) {
-  const v = me();
-  const units = readSendInputs();
-  if (!sum(units)) { toast('Wähle zuerst Truppen aus'); return; }
-  const human = state.players[targetId];
-  if (human && shielded(human)) { toast(`🛡️ ${human.name} steht noch unter Schutzschild`); return; }
-  if (human) v.shieldUntil = 0; // wer selbst angreift, verliert seinen Schild
-  const autoEl = document.getElementById('send-auto');
-  const auto = !human && !!v.lv.zelt && !!(autoEl && autoEl.checked);
-  const now = Date.now();
-  const name = launchMission(v, targetId, units, now, auto);
-  v.log.unshift({ t: now, kind: 'attack', name, units, auto });
-  v.log.length = Math.min(v.log.length, 200);
-  save();
-  toast(auto ? `🔁 Dauerauftrag: Truppen plündern ${name} immer wieder` : `⚔️ Truppen marschieren nach ${name}`);
-  render();
-}
-
-// Dauerauftrag beenden: Truppen kommen nach dieser Runde heim
-function stopAuto(i) {
-  const m = me().missions[Number(i)];
-  if (m) { m.stop = true; save(); toast('🔁 Dauerauftrag beendet – die Truppen kommen heim'); render(); }
-}
-
-function setAutoRecruit(uid) {
-  me().autoRecruit = uid || null;
+function equip(id) {
+  const p = me();
+  const it = itemOf(id);
+  if (!p.owned[id]) return;
+  p.equip[it.slot] = p.equip[it.slot] === id ? null : id;
   save();
   render();
+}
+
+function setDefault(arg) {
+  const [i, t] = arg.split(':');
+  me().tactics[Number(i)] = t;
+  save();
+  render();
+}
+
+// Arena: Gegner wählen, Taktiken wählen, kämpfen
+function pickOpp(id) { duelTarget = id; duelPick = []; answering = null; render(); scrollToTop(); }
+function pickAnswer(id) { answering = id; duelTarget = null; duelPick = []; render(); scrollToTop(); }
+function pickTactic(t) { if (duelPick.length < 3) duelPick.push(t); render(); }
+function clearPick() { duelPick = []; render(); }
+function closeDuel() { duelTarget = null; answering = null; duelPick = []; render(); }
+const scrollToTop = () => window.scrollTo({ top: 0, behavior: 'smooth' });
+
+function opponentOf(id) {
+  if (id === 'boss') return bossOfWeek();
+  const bot = byId(BOTS, id);
+  if (bot) return fighterOfBot(bot);
+  return fighterOf(state.players[id]);
+}
+
+function startFight() {
+  const p = me();
+  if (duelPick.length < 3) return;
+  if (answering) { answerChallenge(); return; }
+  if (p.energy < 1) { toast('⚡ Keine Energie – trainiere, um neue zu bekommen!'); return; }
+  const id = duelTarget;
+  if (state.players[id]) { challengeHuman(id); return; }
+  const opp = opponentOf(id);
+  if (opp.boss && p.bossWeek === weekKey()) { toast('Den Wochenboss hast du schon besiegt – nächste Woche kommt ein neuer!'); return; }
+  const seed = rid();
+  const res = fight(fighterOf(p), opp, duelPick, botTactics(opp.bot, seed), seed);
+  p.energy--;
+  const delta = res.attWin ? eloDelta(p.ruhm, opp.ruhm, 24) : eloDelta(opp.ruhm, p.ruhm, 24);
+  const bossWin = opp.boss && res.attWin;
+  const r = bookFight(p, { win: res.attWin, opp, rounds: res.rounds, mineAtt: true, delta: opp.boss ? (res.attWin ? 30 : 0) : delta,
+    kind: opp.boss ? 'boss' : 'bot', taler: bossWin ? BOSS_REWARD : res.attWin ? 10 + opp.level : 2 });
+  if (bossWin) { p.bossWeek = weekKey(); p.life.bossWins++; }
+  freshReport = r.id;
+  duelTarget = null; duelPick = [];
+  save();
+  render();
+  scrollToTop();
+}
+
+function challengeHuman(pid) {
+  const p = me();
+  const other = state.players[pid];
+  if (p.outgoing.some(o => o.to === pid)) { toast(`Du wartest schon auf eine Antwort von ${other.name}`); return; }
+  const d = { id: rid() + rid(), from: idOf(p), to: pid, fromName: p.name, toName: other.name, tactics: [...duelPick],
+    at: Date.now(), deadline: Date.now() + CHALLENGE_H * H_MS, snap: fighterOf(p) };
+  p.energy--;
+  p.outgoing.push(d);
+  p.log.unshift({ t: Date.now(), kind: 'challenge', name: other.name });
+  sendEvent(pid, { kind: 'challenge', duel: d });
+  duelTarget = null; duelPick = [];
+  save();
+  toast(`⚔️ Herausforderung an ${other.name} geschickt – sie/er hat ${CHALLENGE_H} Std. Zeit`, true);
+  render();
+}
+
+function answerChallenge() {
+  const p = me();
+  const d = p.incoming.find(x => x.id === answering);
+  answering = null;
+  if (!d) return;
+  if (Date.now() > d.deadline) { toast('Zu spät – die Frist ist abgelaufen, es wird automatisch gekämpft'); duelPick = []; render(); return; }
+  const res = resolveDuel(d, p, [...duelPick], false);
+  duelPick = [];
+  p.incoming = p.incoming.filter(x => x !== d);
+  const r = bookFight(p, { win: !res.attWin, opp: { name: d.fromName, icon: '🦸' }, rounds: res.rounds, mineAtt: false,
+    delta: res.delta, kind: 'human', taler: res.attWin ? 5 : 25 });
+  freshReport = r.id;
+  sendEvent(d.from, { kind: 'result', result: res });
+  save();
+  render();
+  scrollToTop();
+}
+
+// Ergebnis kommt beim Verteidiger an (nach Ablauf der Frist)
+function finishDefense(p, res) {
+  const d = p.incoming.find(x => x.id === res.id);
+  if (!d) return;
+  p.incoming = p.incoming.filter(x => x !== d);
+  const r = bookFight(p, { win: !res.attWin, opp: { name: res.attName, icon: '🦸' }, rounds: res.rounds, mineAtt: false,
+    delta: res.delta, kind: 'human', taler: res.attWin ? 5 : 25 });
+  r.auto = true;
+  if (p === me()) toast(`⏰ Duell gegen ${res.attName} automatisch ausgetragen – ${res.attWin ? 'verloren' : 'gewonnen!'}`, true);
 }
 
 function undo() {
-  const v = me();
-  const e = v.log[0];
-  if (!e || !UNDOABLE.includes(e.kind) || !confirm('Letzten Eintrag rückgängig machen?')) return;
+  const p = me();
+  const e = p.log[0];
+  if (!e || !['train', 'health'].includes(e.kind) || !confirm('Letzten Eintrag rückgängig machen?')) return;
   if (e.kind === 'train') {
-    const L = v.life;
-    for (const r in e.got) v.res[r] = Math.max(0, v.res[r] - e.got[r]);
-    v.lastDay = e.prevDay;
-    if (typeof e.sped === 'number' && v.queue[0]) v.queue[0].end += e.sped; // alte Einträge
-    else for (const id in e.sped || {}) { const q = inBuild(v, id); if (q) q.end += e.sped[id]; }
-    if (e.id === 'milon') {
-      L.rounds = Math.max(0, L.rounds - 1);
-      v.rounds = Math.max(0, v.rounds - 1);
-    }
-    if (e.course) {
-      L.courses = Math.max(0, L.courses - 1);
-      v.calmUntil = e.prevCalm || 0;
-    }
-    if (e.bonus && e.wk) { L.days = Math.max(0, L.days - 1); L.weeks[e.wk] = Math.max(0, (L.weeks[e.wk] || 1) - 1); }
-    if (e.chest) {
-      for (const r in e.chest.loot) v.res[r] = Math.max(0, v.res[r] - e.chest.loot[r]);
-      Object.assign(L, e.chest.prev);
-    }
-  } else if (e.kind === 'recruit') {
-    v.units[e.id] = Math.max(0, v.units[e.id] - e.n);
-    const cap = capacity(v);
-    for (const r in e.cost) v.res[r] = Math.min(cap, v.res[r] + e.cost[r]);
+    const L = p.life;
+    for (const s in e.got) p.stats[s] = Math.max(BASE_STAT, p.stats[s] - e.got[s]);
+    p.xp = Math.max(0, p.xp - sum(e.got));
+    p.taler = Math.max(0, p.taler - e.taler - (e.chest ? e.chest.taler : 0));
+    p.energy = Math.max(0, p.energy - e.energy - (e.chest ? e.chest.energy : 0));
+    p.counts[e.id] = Math.max(0, p.counts[e.id] - 1);
+    if (e.healed) p.wounds++;
+    if (e.id === 'kurs' || e.id === 'dehnen') L.calm = Math.max(0, L.calm - 1);
+    L.sessions = Math.max(0, L.sessions - 1);
+    if (e.firstToday) { L.days = Math.max(0, L.days - 1); L.weeks[e.wk] = Math.max(0, (L.weeks[e.wk] || 1) - 1); }
+    if (e.chest) { Object.assign(L, e.chest.prev); L.goals = Math.max(0, L.goals - 1); }
+    p.lastDay = e.prevDay;
   } else {
-    const q = v.queue.find(q => q.id === e.id && q.level === e.level);
-    if (q) {
-      v.queue = v.queue.filter(x => x !== q); // Baustelle abbrechen
-    } else {
-      v.lv[e.id]--;
-      v.spent -= sum(e.cost);
-    }
-    const cap = capacity(v);
-    for (const r in e.cost) v.res[r] = Math.min(cap, v.res[r] + e.cost[r]);
+    p.taler = Math.max(0, p.taler - 2);
+    if (e.healed) p.wounds++;
   }
-  v.log.shift();
+  p.log.shift();
   save();
   render();
 }
@@ -1246,40 +874,42 @@ function rename(id) {
 }
 
 function reset() {
-  if (!confirm('Wirklich ALLES zurücksetzen? Beide Dörfer starten neu – auch Ränge, Abzeichen und Ruhmeshalle. Das gilt für beide Handys.')) return;
+  if (!confirm('Wirklich ALLES zurücksetzen? Beide Helden starten neu – auch Ränge, Abzeichen und Ruhmeshalle. Das gilt für beide Handys.')) return;
   const fresh = freshState();
-  for (const k of ['startDay', 'season', 'hall', 'raids', 'team', 'resetId']) state[k] = fresh[k];
-  metaSet({ startDay: state.startDay, season: state.season, hall: null, raids: null, team: null, resetId: state.resetId });
+  for (const k of ['startDay', 'created', 'season', 'hall', 'team', 'resetId']) state[k] = fresh[k];
+  metaSet({ startDay: state.startDay, created: state.created, season: state.season, hall: null, team: null, resetId: state.resetId });
   reconcileOwn();
-  botCache.clear();
   save();
   toast('🔄 Neues Spiel – alles auf Anfang!', true);
   render();
 }
 
-const UNDOABLE = ['train', 'build', 'recruit'];
+function newSeason() {
+  const w = state.season.winner;
+  if (!w || !confirm('Neue Saison starten? Ruhm beginnt wieder bei 1000 – eure Helden, Gegenstände und Abzeichen bleiben.')) return;
+  state.hall.unshift({ no: state.season.no, name: w.name, how: w.how, day: todayStr() });
+  state.season = { no: state.season.no + 1, weeks: SEASON_WEEKS, winner: null };
+  state.startDay = todayStr();
+  metaSet({ hall: state.hall, season: state.season, startDay: state.startDay });
+  reconcileOwn();
+  save();
+  toast(`⚔️ Saison ${state.season.no} beginnt!`, true);
+  render();
+}
 
 const actions = {
-  train, build, undo, rename, reset, recruit, attack, newSeason, sendall: sendAll, stopauto: stopAuto,
+  train, health, buy, equip, undo, rename, reset, newSeason,
+  setdefault: setDefault, opp: pickOpp, answer: pickAnswer, tactic: pickTactic, clearpick: clearPick, closeduel: closeDuel, fight: startFight,
   create: createGame, join: joinGame, local: playLocal, share: shareInvite, leave: leaveGame,
   setupdone: () => { setupStep = null; render(); },
+  seen: () => { freshReport = null; render(); },
   tab: t => { tab = t; render(); window.scrollTo(0, 0); },
-  player: id => { if (online()) return; state.current = id; mapSel = null; lastTab = null; save(); render(); },
-  mapsel: id => { mapSel = id; render(); },
-  focus: id => {
-    const el = document.getElementById('b-' + id);
-    if (!el) return;
-    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
-    el.classList.remove('flash'); void el.offsetWidth; el.classList.add('flash');
-  },
+  player: id => { if (online()) return; state.current = id; closeDuel(); save(); render(); },
 };
 
 document.addEventListener('click', e => {
   const el = e.target.closest('[data-act]');
-  if (el && actions[el.dataset.act]) actions[el.dataset.act](el.dataset.arg);
-});
-document.addEventListener('change', e => {
-  if (e.target.id === 'auto-recruit') setAutoRecruit(e.target.value);
+  if (el && !el.disabled && actions[el.dataset.act]) actions[el.dataset.act](el.dataset.arg);
 });
 
 /* =========================================================
@@ -1287,509 +917,321 @@ document.addEventListener('change', e => {
    ========================================================= */
 
 const esc = s => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
-
-function fmtRes(o, sign = '') {
-  return Object.entries(o).filter(([, n]) => n > 0).map(([r, n]) => `${sign}${num(n)} ${RES[r].icon}`).join('  ');
+function fmtStats(o, sign = '') {
+  return Object.entries(o).filter(([, n]) => n > 0).map(([s, n]) => `${sign}${String(Math.round(n * 10) / 10).replace('.', ',')} ${STATS[s].icon}`).join('  ');
 }
-
-function costChips(v, cost) {
-  return `<div class="chips">${Object.entries(cost).map(([r, n]) =>
-    `<span class="chip ${v.res[r] < n ? 'short' : ''}">${RES[r].icon} ${num(n)}</span>`).join('')}</div>`;
-}
-
-function renderHeader() {
-  document.getElementById('players').innerHTML = Object.entries(state.players).map(([id, p]) => `
-    <button class="pchip ${id === state.current ? 'on' : ''} ${online() && id !== game.me ? 'other' : ''}" data-act="player" data-arg="${id}">
-      <b>${rankOf(p.life).icon} ${esc(p.name)}</b><small>${num(points(p))} P.</small>
-    </button>`).join('');
-  renderSyncDot();
-
-  const v = me();
-  const cap = capacity(v);
-  document.getElementById('resbar').innerHTML = Object.entries(RES).map(([r, info]) => `
-    <div class="res">
-      <div class="res-top"><span>${info.icon} ${info.name}</span><b>${num(v.res[r])}</b></div>
-      <div class="meter"><i style="width:${Math.min(100, v.res[r] / cap * 100)}%"></i></div>
-    </div>`).join('') + `<div class="cap">Speicher: ${num(cap)} je Rohstoff</div>`;
-
-  for (const btn of document.querySelectorAll('#tabs button')) btn.classList.toggle('on', btn.dataset.arg === tab);
-}
-
-function viewTraining() {
-  const v = me();
-  const L = v.life;
-  const bonus = v.lastDay !== todayStr();
-  const goal = nextGoal(v);
-  const rank = rankOf(L), next = nextRank(L);
-  const weekDays = L.weeks[weekKey()] || 0;
-  const streak = currentStreak(L);
-  const cu = catchUp(v);
-  const team = teamDays();
-  return `
-    ${incomingBanner(v)}
-    <section class="banner ${bonus ? 'sun' : 'done'}">
-      ${bonus ? '☀️ <b>Erstes Training heute:</b> +50 % auf den nächsten Eintrag!' : '✅ Heute schon trainiert – stark!'}
-    </section>
-    ${calm(v) ? `<section class="banner calm">🕊️ <b>Innere Ruhe:</b> +${CALM_BONUS * 100} % Verteidigung, noch <b data-eta="${v.calmUntil}">${fmtDur(v.calmUntil - Date.now())}</b></section>` : ''}
-    ${cu ? `<section class="banner catchup">🚀 <b>Aufhol-Bonus +${Math.round(cu * 100)} %</b> – du liegst hinten, jeder Durchgang bringt dir mehr.</section>` : ''}
-    ${tired(v) ? `<section class="banner tired">😮‍💨 <b>${roundsToday(v) + 1}. Durchgang heute:</b> −${TIRED_MALUS * 100} % – Erholung zählt auch! Morgen gibt's wieder den vollen Ertrag.</section>` : ''}
-    ${v.queue.map(q => queueCard(v, q)).join('')}
-    <div class="minis">
-      <div class="mini" data-act="tab" data-arg="profil">
-        <b>${rank.icon} ${rank.name}</b>
-        <small>${next ? `noch ${next.min - L.rounds} Durchg. bis ${next.name}` : 'Höchster Rang!'}</small>
-      </div>
-      <div class="mini" data-act="tab" data-arg="profil">
-        <b>🎁 Woche ${Math.min(weekDays, WEEK_GOAL_DAYS)}/${WEEK_GOAL_DAYS}</b>
-        <small>${weekDays >= WEEK_GOAL_DAYS ? 'Truhe geöffnet ✓' : 'Trainingstage bis zur Truhe'}${streak ? ` · 🔥 ${streak}` : ''}</small>
-      </div>
-      <div class="mini wide" data-act="tab" data-arg="profil">
-        <b>🤝 Team ${Math.min(team, TEAM_GOAL_DAYS)}/${TEAM_GOAL_DAYS}</b>
-        <small>${state.team[weekKey()] ? 'Teamtruhe geöffnet ✓' : 'gemeinsame Trainingstage diese Woche – dann gibt’s die Teamtruhe für beide'}</small>
-      </div>
-    </div>
-    ${goal ? goalCard(v, goal) : ''}
-    <h2>Training eintragen</h2>
-    <div class="acts">${ACTIVITIES.map(a => {
-      const done = doneToday(v, a.id);
-      const full = a.perDay && done >= a.perDay;
-      if (a.course) return `
-      <div class="act main course ${full ? 'is-done' : ''}">
-        <span class="act-icon">${a.icon}</span>
-        <span class="act-name">${a.name} <small>${done}/${a.perDay} heute</small></span>
-        <span class="act-unit">${a.unit}</span>
-        <span class="act-gain">${full ? 'für heute geschafft ✓' : fmtRes(gainOf(v, a, bonus), '+')}</span>
-        ${full ? '' : `<span class="act-unit">Welcher Kurs?</span>
-        <div class="course-chips">${COURSES.map(c => `
-          <button class="chip-btn" data-act="train" data-arg="kurs:${c.id}">${c.icon} ${c.name}</button>`).join('')}</div>`}
-      </div>`;
-      return `
-      <button class="act ${a.light ? 'light' : 'main'}" data-act="train" data-arg="${a.id}" ${full ? 'disabled' : ''}>
-        <span class="act-icon">${a.icon}</span>
-        <span class="act-name">${a.name}${a.perDay ? ` <small>${done}/${a.perDay} heute</small>` : ''}</span>
-        <span class="act-unit">${a.unit}</span>
-        <span class="act-gain">${full ? 'für heute geschafft ✓' : fmtRes(gainOf(v, a, bonus), '+')}</span>
-        ${v.queue.length && !full ? `<span class="act-boost">⚡ ${a.light ? `Baustelle −${TRAIN_SPEEDUP_MIN} Min.` : 'halbiert die Restbauzeit'}</span>` : ''}
-      </button>`;
-    }).join('')}</div>
-    <p class="hint">Nach jedem Durchgang einmal tippen. Aufwärmen (bis 2× am Tag) und Kurse (1× am Tag) zählen nicht als Milon-Durchgang – ein Kurs zählt aber als Trainingstag für die Truhen. Vertippt? Unter „Profil“ lässt sich der letzte Eintrag zurücknehmen.</p>`;
-}
-
-// Laufende Baustelle mit Countdown und Fortschrittsbalken
-function queueCard(v, q) {
-  const b = byId(BUILDINGS, q.id);
-  const pct = Math.min(100, (Date.now() - q.start) / (q.end - q.start) * 100);
-  return `
-    <section class="card building-now">
-      <div class="goal-head">
-        <span class="big-icon">${bIcon(b)}</span>
-        <div class="bld-title">
-          <b>🔨 ${b.name} → Stufe ${q.level}</b>
-          <small>fertig in <b data-eta="${q.end}">${fmtDur(q.end - Date.now())}</b> · jeder Durchgang halbiert die Zeit</small>
-        </div>
-      </div>
-      <div class="meter big"><i data-prog="${q.start},${q.end}" style="width:${pct}%"></i></div>
-    </section>`;
-}
-
-function goalCard(v, { b, c }) {
-  let action;
-  if (c.ok) action = `<button class="btn primary" data-act="build" data-arg="${b.id}">Jetzt ausbauen · ⏱ ${fmtDur(buildMinutes(v, b) * 60e3)}</button>`;
-  else if (Object.keys(c.missing).length) action = `<div class="todo">Noch: <b>${missingAsWorkouts(v, c.missing).join(' + ')}</b></div>`;
-  else action = '<div class="todo">✓ Rohstoffe da – startklar, sobald eine Baustelle frei ist</div>';
-  return `
-    <section class="card goal">
-      <div class="goal-head">
-        <span class="big-icon">${bIcon(b)}</span>
-        <div>
-          <div class="eyebrow">Nächstes Ziel</div>
-          <div class="goal-title">${b.name} → Stufe ${v.lv[b.id] + 1}</div>
-        </div>
-      </div>
-      ${costChips(v, c.cost)}
-      ${action}
-    </section>`;
-}
-
-function buildingCard(v, b) {
-  const level = v.lv[b.id];
-  const c = check(v, b);
-  let extra = '';
-  const boostRes = Object.keys(BOOSTED_BY).find(r => BOOSTED_BY[r] === b.id);
-  if (boostRes) extra = level ? ` · aktuell +${Math.round(level * BOOST_PER_LEVEL * 100)} %, dazu ${num(Math.round(passivePerDay(v, boostRes)))} ${RES[boostRes].icon} pro Tag von allein`
-    : ' · liefert pro Stufe auch ein wenig von allein';
-  if (b.id === 'speicher') extra = ` · aktuell ${num(capacity(v))} je Rohstoff`;
-  if (b.id === 'haupthaus') extra = v.lv.haupthaus >= SECOND_SLOT_HQ ? ' · 2 Baustellen gleichzeitig ✓' : ` · ab Stufe ${SECOND_SLOT_HQ}: 2 Baustellen gleichzeitig`;
-  const inBau = inBuild(v, b.id);
-
-  let action;
-  if (inBau) action = `<div class="todo">🔨 Im Bau → Stufe ${inBau.level} · fertig in <b data-eta="${inBau.end}">${fmtDur(inBau.end - Date.now())}</b></div>`;
-  else if (c.ok) action = `<button class="btn primary" data-act="build" data-arg="${b.id}">Auf Stufe ${level + 1} ausbauen · ⏱ ${fmtDur(buildMinutes(v, b) * 60e3)}</button>`;
-  else if (c.blocked) action = `<div class="blocked">🔒 ${c.blocked}</div>`;
-  else if (Object.keys(c.missing).length) action = `<div class="todo">Noch: <b>${missingAsWorkouts(v, c.missing).join(' + ')}</b></div>`;
-  else action = '<div class="blocked">⏳ Rohstoffe da – erst, wenn eine Baustelle frei ist</div>';
-
-  return `
-    <article class="card bld ${c.ok ? 'ready' : ''} ${b.goal ? 'goal' : ''}" id="b-${b.id}">
-      <div class="bld-head">
-        <span class="big-icon">${bIcon(b)}</span>
-        <div class="bld-title"><b>${b.name}</b><small>${b.desc}${extra}</small></div>
-        <span class="lvl">${level}</span>
-      </div>
-      ${c.cost && !inBau ? costChips(v, c.cost) : ''}
-      ${action}
-      ${level ? UNITS.filter(u => u.at === b.id).map(u => unitRow(v, u)).join('') : ''}
-    </article>`;
-}
-
-function unitRow(v, u) {
-  if (v.lv[u.at] < (u.req || 1)) {
-    return `
-      <div class="unit locked">
-        <span class="big-icon">${u.icon}</span>
-        <div class="bld-title"><b>${u.name}</b><small>🔒 ab ${byId(BUILDINGS, u.at).name} Stufe ${u.req} · ${u.desc}</small></div>
-      </div>`;
-  }
-  const c = unitCost(v, u);
-  const can = n => Object.keys(c).every(r => v.res[r] >= c[r] * n);
-  return `
-    <div class="unit">
-      <span class="big-icon">${u.icon}</span>
-      <div class="bld-title">
-        <b>${u.name} <span class="muted">· ${v.units[u.id]} im Dorf</span></b>
-        <small>${u.desc} · ⚔️ ${u.att} 🛡️ ${u.def} 🎒 ${u.carry}</small>
-        ${costChips(v, c)}
-      </div>
-      <div class="unit-btns">
-        <button class="btn small" data-act="recruit" data-arg="${u.id}:1" ${can(1) ? '' : 'disabled'}>+1</button>
-        <button class="btn small" data-act="recruit" data-arg="${u.id}:5" ${can(5) ? '' : 'disabled'}>+5</button>
-      </div>
-    </div>`;
-}
-
-function fmtUnits(units) {
-  return UNITS.filter(u => units[u.id]).map(u => `${units[u.id]} ${u.icon}`).join('  ') || '–';
-}
-
 function fmtDur(ms) {
   const s = Math.max(0, Math.round(ms / 1000));
   const h = Math.floor(s / 3600), m = Math.floor(s / 60) % 60, sec = s % 60;
   return (h ? `${h}:${String(m).padStart(2, '0')}` : `${m}`) + `:${String(sec).padStart(2, '0')}`;
 }
+const fmtTime = t => new Date(t).toLocaleString('de-DE', { weekday: 'short', hour: '2-digit', minute: '2-digit' });
 
-function viewDorf() {
-  const v = me();
-  return `
-    <h2>Dorf von ${esc(v.name)} <small>${num(points(v))} Punkte</small></h2>
-    ${villageScene(v)}
-    <p class="hint center">Tippe auf ein Gebäude, um es auszubauen.</p>
-    ${BUILDINGS.map(b => buildingCard(v, b)).join('')}`;
+function renderHeader() {
+  document.getElementById('players').innerHTML = Object.entries(state.players).map(([id, p]) => `
+    <button class="pchip ${id === state.current ? 'on' : ''} ${online() && id !== game.me ? 'other' : ''}" data-act="player" data-arg="${id}">
+      <b>${rankOf(p.life).icon} ${esc(p.name)}</b><small>${num(p.ruhm)} 🏆</small>
+    </button>`).join('');
+  renderSyncDot();
+  const p = me();
+  const lvl = levelOf(p);
+  const pct = (p.xp - xpFor(lvl)) / (xpFor(lvl + 1) - xpFor(lvl)) * 100;
+  document.getElementById('resbar').innerHTML = `
+    <div class="res"><div class="res-top"><span>⭐ Level</span><b>${lvl}</b></div><div class="meter"><i style="width:${pct}%"></i></div></div>
+    <div class="res"><div class="res-top"><span>⚡ Energie</span><b>${p.energy}/${ENERGY_MAX}</b></div><div class="meter energy"><i style="width:${p.energy / ENERGY_MAX * 100}%"></i></div></div>
+    <div class="res"><div class="res-top"><span>🪙 Taler</span><b>${num(p.taler)}</b></div>
+      <div class="hearts">${'❤️'.repeat(WOUND_MAX - p.wounds)}${'🩹'.repeat(p.wounds)}</div></div>`;
+  for (const btn of document.querySelectorAll('#tabs button')) btn.classList.toggle('on', btn.dataset.arg === tab);
+  const badge = document.getElementById('arena-badge');
+  if (badge) badge.textContent = me().incoming.length || '';
 }
 
-function villageScene(v) {
-  const trees = [[18, 26], [42, 16], [318, 16], [342, 30], [16, 222], [40, 234], [344, 218], [320, 234], [180, 22]];
-  const wall = v.lv.wall;
+/* ---------- Held als Zeichnung ---------- */
+
+function heroSvg(p, big = false) {
+  const lvl = levelOf(p);
+  const st = p.stats;
+  const sh = Math.min(15, 9 + (st.str - BASE_STAT) / 12); // Schulterbreite wächst mit der Stärke
+  const weapon = itemOf(p.equip.weapon), armor = itemOf(p.equip.armor), trinket = itemOf(p.equip.trinket);
+  const cape = lvl >= 15 ? '#7b2d8e' : lvl >= 8 ? '#b23b2a' : lvl >= 4 ? '#3a6ea5' : '#7a6a58';
+  const body = armor ? { wams: '#8a5a2b', kette: '#8e959c', drache: '#2f7d5b' }[armor.id] : '#c9a77c';
+  const aura = st.mind >= 30 ? `<circle cx="50" cy="52" r="${Math.min(46, 30 + (st.mind - 30) / 4)}" class="h-aura"/>` : '';
+  const weaponSvg = !weapon ? '<rect x="72" y="44" width="3" height="24" rx="1.5" fill="#8a5a2b"/>' : {
+    schwert: '<rect x="72" y="28" width="4" height="34" rx="1" fill="#cfd6dc" stroke="#6b7177"/><rect x="67" y="60" width="14" height="4" rx="2" fill="#8a5a2b"/>',
+    axt: '<rect x="72" y="30" width="3.5" height="38" rx="1.5" fill="#8a5a2b"/><path d="M75 30 q14 6 0 18 z" fill="#cfd6dc" stroke="#6b7177"/>',
+    kurzbogen: '<path d="M70 34 q14 18 0 36" fill="none" stroke="#8a5a2b" stroke-width="3"/><line x1="70" y1="34" x2="70" y2="70" stroke="#ddd" stroke-width="1"/>',
+    langbogen: '<path d="M70 26 q18 26 0 52" fill="none" stroke="#6b3e1d" stroke-width="3.5"/><line x1="70" y1="26" x2="70" y2="78" stroke="#ddd" stroke-width="1"/>',
+    netz: '<circle cx="76" cy="56" r="9" fill="none" stroke="#9a8a6a" stroke-width="1.5" stroke-dasharray="3 2"/><path d="M68 56 h16 M76 48 v16" stroke="#9a8a6a"/>',
+    dolch: '<path d="M74 44 l3 0 l-1.5 16 z" fill="#5a5a6e" stroke="#2b2b3a"/><rect x="71" y="58" width="9" height="3" rx="1.5" fill="#2b2b3a"/>',
+  }[weapon.id];
   return `
-    <svg class="scene" viewBox="0 0 360 240" role="img" aria-label="Dorfansicht">
-      <rect width="360" height="240" rx="16" class="s-grass"/>
-      ${trees.map(([x, y]) => `<text x="${x}" y="${y}" class="s-tree">🌲</text>`).join('')}
-      <ellipse cx="180" cy="118" rx="138" ry="80" class="s-path"/>
-      ${wall ? `<ellipse cx="180" cy="118" rx="162" ry="100" class="s-wall" style="stroke-width:${2 + wall * 0.7}px"/>` : ''}
-      ${BUILDINGS.map(b => sceneBuilding(v, b)).join('')}
+    <svg class="hero ${big ? 'big' : ''}" viewBox="0 0 100 100" aria-label="Held">
+      ${aura}
+      <ellipse cx="50" cy="94" rx="24" ry="4" class="h-shadow"/>
+      <path d="M${50 - sh} 40 L${50 - sh - 6} 82 L${50 + sh + 6} 82 L${50 + sh} 40 Z" fill="${cape}"/>
+      <rect x="42" y="66" width="6" height="24" rx="3" fill="#5a4632"/><rect x="52" y="66" width="6" height="24" rx="3" fill="#5a4632"/>
+      <rect x="40" y="86" width="9" height="6" rx="2" fill="#3b2a1c"/><rect x="51" y="86" width="9" height="6" rx="2" fill="#3b2a1c"/>
+      <path d="M${50 - sh} 40 Q50 36 ${50 + sh} 40 L${50 + sh - 3} 70 L${50 - sh + 3} 70 Z" fill="${body}" stroke="rgba(0,0,0,.25)"/>
+      ${armor && armor.id === 'kette' ? `<path d="M${50 - sh + 2} 46 h${2 * sh - 4} M${50 - sh + 3} 52 h${2 * sh - 6} M${50 - sh + 3} 58 h${2 * sh - 6}" stroke="#6b7177" stroke-width="1" stroke-dasharray="2 1.5"/>` : ''}
+      <rect x="${50 - sh - 5}" y="41" width="6" height="22" rx="3" fill="#e2b48c"/>
+      <rect x="${50 + sh - 1}" y="41" width="6" height="22" rx="3" fill="#e2b48c"/>
+      <circle cx="50" cy="28" r="10" fill="#e9c19b"/>
+      <path d="M40 26 q10 -14 20 0 q-4 -5 -10 -5 q-6 0 -10 5z" fill="#5a3a22"/>
+      <circle cx="46.5" cy="29" r="1.2" fill="#2b2118"/><circle cx="53.5" cy="29" r="1.2" fill="#2b2118"/>
+      <path d="M46 33 q4 ${p.wounds ? -1 : 2.5} 8 0" fill="none" stroke="#2b2118" stroke-width="1"/>
+      ${p.wounds ? '<rect x="42" y="20" width="16" height="4" rx="2" fill="#f4f1ea" stroke="#c9b8a0" transform="rotate(-12 50 22)"/>' : ''}
+      ${trinket ? `<circle cx="50" cy="47" r="3.5" fill="${{ weitsicht: '#8e6bd8', klee: '#3f9a4a', herz: '#d9473a', sonne: '#f2b233' }[trinket.id]}" stroke="#fff" stroke-width="1"/>` : ''}
+      ${weaponSvg}
+      <text x="50" y="12" class="h-lvl">Lv ${lvl}</text>
     </svg>`;
 }
 
-// Gezeichnete Häuser statt Werkzeug-Symbolen: Wandfarbe, Dachfarbe, Schild
-const HOUSES = {
-  holzfaeller: { wall: '#b07a45', roof: '#3f6e3a', sign: '🪓', logs: true },
-  lehmgrube:   { wall: '#d9a46c', roof: '#b4532a', sign: '⛏️' },
-  schmiede:    { wall: '#9a9a96', roof: '#4b4f57', sign: '⚒️', chimney: true },
-  speicher:    { wall: '#c8a26b', roof: '#8c3b2e', sign: '📦', wide: true },
-  kaserne:     { wall: '#c9b79a', roof: '#3d5f8f', sign: '⚔️', flag: true },
-  stall:       { wall: '#a86b3c', roof: '#7a3324', sign: '🐴', wide: true, barn: true },
-};
+/* ---------- Training ---------- */
 
-// Haus mit Fußpunkt bei (0,0), ca. 40 breit und 38 hoch
-function houseShape(id) {
-  const h = HOUSES[id];
-  const w = h.wide ? 34 : 28;
+function viewTraining() {
+  const p = me();
+  const L = p.life;
+  const first = p.lastDay !== todayStr();
+  const weekDays = L.weeks[weekKey()] || 0;
+  const streak = currentStreak(L);
+  const team = teamDays();
+  const cu = catchUp(p);
   return `
-    ${h.chimney ? '<rect x="6" y="-36" width="6" height="12" fill="#5d5d5d"/><circle cx="11" cy="-40" r="3" fill="#bbb" opacity=".7"/>' : ''}
-    ${h.flag ? '<line x1="0" y1="-34" x2="0" y2="-44" stroke="#5a4632" stroke-width="1.5"/><path d="M0 -44 L9 -41 L0 -38 Z" fill="#c0392b"/>' : ''}
-    <rect x="${-w / 2}" y="-20" width="${w}" height="20" rx="1.5" fill="${h.wall}" stroke="rgba(0,0,0,.35)" stroke-width="1"/>
-    <path d="M${-w / 2 - 4} -19 L0 -35 L${w / 2 + 4} -19 Z" fill="${h.roof}" stroke="rgba(0,0,0,.35)" stroke-width="1" stroke-linejoin="round"/>
-    ${h.barn
-      ? '<path d="M-6 0 V-12 Q0 -16 6 -12 V0 Z" fill="#5a3418"/><path d="M-6 -12 L6 0 M6 -12 L-6 0" stroke="#e8d3b0" stroke-width="1"/>'
-      : `<rect x="-4" y="-11" width="8" height="11" rx="1" fill="#5a3a22"/>
-         <rect x="${-w / 2 + 3}" y="-15" width="6" height="6" fill="#ffe9a8" stroke="rgba(0,0,0,.3)" stroke-width=".8"/>`}
-    ${h.logs ? '<g fill="#8a5a2b" stroke="#5a3a1a" stroke-width=".8"><circle cx="20" cy="-3" r="3"/><circle cx="26" cy="-3" r="3"/><circle cx="23" cy="-8" r="3"/></g>' : ''}
-    <circle cx="${w / 2 - 6}" cy="-11" r="6" fill="#f6efe1" stroke="rgba(0,0,0,.35)" stroke-width=".8"/>
-    <text x="${w / 2 - 6}" y="-7.6" font-size="8.5" text-anchor="middle">${h.sign}</text>`;
-}
-
-// Symbol für Karten und Listen: gezeichnetes Haus, sonst das Emoji
-function bIcon(b) {
-  return HOUSES[b.id] ? `<svg class="house-icon" viewBox="-22 -46 46 48" aria-hidden="true">${houseShape(b.id)}</svg>` : b.icon;
-}
-
-function sceneBuilding(v, b) {
-  const [x, y] = SCENE_POS[b.id];
-  const lvl = v.lv[b.id];
-  const inBau = inBuild(v, b.id);
-  if (b.max === 1) { // Statue und Zelt erscheinen erst, wenn sie stehen (oder gebaut werden)
-    if (!lvl && !inBau) return '';
-    return `<g class="s-bld" data-act="focus" data-arg="${b.id}">
-      <text x="${x}" y="${y + 14}" font-size="40" text-anchor="middle" opacity="${lvl ? 1 : 0.4}">${b.icon}</text>
-      ${inBau ? `<text x="${x + 18}" y="${y - 10}" font-size="16" text-anchor="middle">🚧</text>` : ''}</g>`;
-  }
-  const size = Math.min(46, 24 + lvl * 1.6); // Gebäude wachsen mit der Stufe
-  return `
-    <g class="s-bld" data-act="focus" data-arg="${b.id}">
-      <ellipse cx="${x}" cy="${y + 14}" rx="28" ry="9" class="s-plot ${lvl ? '' : 'empty'}"/>
-      ${lvl ? `
-        ${HOUSES[b.id] ? `<g transform="translate(${x} ${y + 12}) scale(${(size / 32).toFixed(2)})">${houseShape(b.id)}</g>`
-          : `<text x="${x}" y="${y + 13}" font-size="${size}" text-anchor="middle">${b.icon}</text>`}
-        <circle cx="${x + 22}" cy="${y - 14}" r="9" class="s-badge"/>
-        <text x="${x + 22}" y="${y - 10.5}" class="s-badge-t">${lvl}</text>`
-      : `<text x="${x}" y="${y + 20}" class="s-empty">+</text>`}
-      ${inBau ? `<text x="${x - 22}" y="${y - 8}" font-size="16" text-anchor="middle">🚧</text>` : ''}
-      <text x="${x}" y="${y + 36}" class="s-name">${b.name}</text>
-    </g>`;
-}
-
-/* ---------- Weltkarte ---------- */
-
-function terrain(x, y) {
-  if (Math.hypot(x - 1.5, y - 11.5) < 2.2 || Math.hypot(x - 22, y - 14.5) < 1.7 || Math.hypot(x - 16.5, y - 2) < 1.6
-    || Math.hypot(x - 8, y - 22) < 1.4) return 'water';
-  const h = hash01(`t:${x},${y}`);
-  if (h < 0.2) return 'forest';
-  if (h > 0.93) return 'hill';
-  return (x + y) % 2 ? 'grass' : 'grass2';
-}
-
-function villageIcon(pts) {
-  return pts < 50 ? '🛖' : pts < 300 ? '🏠' : pts < 1000 ? '🏘️' : '🏰';
-}
-
-function aggrLabel(bot) {
-  return bot.aggr >= 0.12 ? '🔥 sehr angriffslustig' : bot.aggr >= 0.06 ? '⚔️ greift ab und zu an' : bot.aggr > 0 ? '🙂 greift selten an' : '😴 friedlich';
-}
-
-function mapVillages() {
-  return [
-    ...Object.entries(state.players).map(([id, p]) => ({
-      id, name: p.name, kind: id === state.current ? 'me' : 'player', pts: points(p), hh: p.lv.haupthaus,
-      info: shielded(p) ? `🛡️ Schutzschild noch ${fmtDur(p.shieldUntil - Date.now())}` : '',
-    })),
-    ...BOTS.map(bot => {
-      const v = botAt(bot);
-      return { id: bot.id, name: bot.name, kind: 'bot', pts: points(v), hh: v.lv.haupthaus,
-        info: `${bot.info} · ${aggrLabel(bot)} · schlägt zurück`, face: bot.icon };
-    }),
-    ...RUINS.map(r => ({ id: r.id, name: r.name, kind: 'ruin', pts: r.pts, hh: 1 })),
-  ].map(v => ({ ...v, pos: MAP_POS[v.id] || byId(RUINS, v.id).pos, icon: v.kind === 'ruin' ? '🏚️' : villageIcon(v.pts) }));
-}
-
-const KIND_LABEL = { me: 'Dein Dorf', player: 'Mitspieler', bot: 'Bot-Dorf', ruin: 'Verlassenes Dorf' };
-
-function viewKarte() {
-  const vs = mapVillages();
-  const home = vs.find(v => v.kind === 'me');
-  const sel = vs.find(v => v.id === mapSel) || home;
-  const S = 28;
-  const taken = new Set(vs.map(v => v.pos.join(',')));
-
-  let cells = '';
-  for (let y = 0; y < MAP_SIZE; y++) {
-    for (let x = 0; x < MAP_SIZE; x++) {
-      const t = taken.has(`${x},${y}`) ? 'grass' : terrain(x, y);
-      cells += `<rect x="${x * S}" y="${y * S}" width="${S}" height="${S}" class="t-${t}"/>`;
-      if (t === 'forest') cells += `<text x="${x * S + S / 2}" y="${y * S + 20}" class="m-deco">🌲</text>`;
-    }
-  }
-  const markers = vs.map(v => {
-    const cx = v.pos[0] * S + S / 2, cy = v.pos[1] * S + S / 2;
-    return `
-      <g class="vill ${v.kind} ${v === sel ? 'sel' : ''}" data-act="mapsel" data-arg="${v.id}">
-        <circle cx="${cx}" cy="${cy}" r="${v === sel ? 15 : 13}"/>
-        <text x="${cx}" y="${cy + 6}" class="m-icon">${v.icon}</text>
-        ${v.face ? `<text x="${cx + 11}" y="${cy - 7}" class="m-face">${v.face}</text>` : ''}
-      </g>`;
-  }).join('');
-
-  // Bot-Angriffe auf mich als Linie zeigen
-  const lines = incomingFor(state.current).map(a => {
-    const [p, q] = [posOf(a.bot), posOf(a.target)];
-    return `<line x1="${p[0] * S + S / 2}" y1="${p[1] * S + S / 2}" x2="${q[0] * S + S / 2}" y2="${q[1] * S + S / 2}" class="m-threat"/>`;
-  }).join('');
-
-  const dist = Math.hypot(sel.pos[0] - home.pos[0], sel.pos[1] - home.pos[1]);
-  const v = me();
-  return `
-    <h2>Weltkarte <small>Tag ${daysBetween(state.startDay, todayStr()) + 1} · ${BOTS.length} Bots</small></h2>
-    ${incomingBanner(v)}
-    ${shielded(v) ? `<p class="hint">🛡️ Dein Schutzschild hält noch <b data-eta="${v.shieldUntil}">${fmtDur(v.shieldUntil - Date.now())}</b>. Greifst du einen Mitspieler an, fällt er weg.</p>` : ''}
-    ${missionList(v)}
-    <div class="map-wrap" id="map-wrap">
-      <svg class="map" viewBox="0 0 ${MAP_SIZE * S} ${MAP_SIZE * S}" width="${MAP_SIZE * S}" height="${MAP_SIZE * S}" role="img" aria-label="Weltkarte">
-        ${cells}${lines}${markers}
-      </svg>
-    </div>
-    <div class="legend">
-      <span><i class="dot me"></i>Du</span><span><i class="dot player"></i>Mitspieler</span>
-      <span><i class="dot bot"></i>Bot</span><span><i class="dot ruin"></i>Ruine</span>
-    </div>
-    <section class="card">
-      <div class="goal-head">
-        <span class="big-icon">${sel.face || sel.icon}</span>
-        <div class="bld-title"><b>${esc(sel.name)}</b><small>${KIND_LABEL[sel.kind]}${sel.info ? ' · ' + sel.info : ''}</small></div>
-      </div>
-      <div class="stats">
-        <div><b>${num(sel.pts)}</b><small>Punkte</small></div>
-        <div><b>${sel.hh}</b><small>Haupthaus</small></div>
-        <div><b>${sel === home ? '–' : dist.toLocaleString('de-DE', { maximumFractionDigits: 1 })}</b><small>Felder entfernt</small></div>
-      </div>
-      ${sel === home
-        ? `<p class="hint">Truppen im Dorf: ${fmtUnits(v.units)}<br>Wähle ein anderes Dorf auf der Karte, um es anzugreifen.</p>`
-        : attackPanel(v, sel)}
+    ${challengeBanner(p)}
+    <section class="banner ${first ? 'sun' : 'done'}">
+      ${first ? '☀️ <b>Erstes Training heute:</b> doppelte Taler und +1 ⚡ extra!' : '✅ Heute schon trainiert – stark!'}
     </section>
-    ${reportList(v)}`;
+    ${cu ? `<section class="banner catchup">🚀 <b>Aufhol-Bonus +${Math.round(cu * 100)} %</b> auf alle Wertepunkte – du holst auf!</section>` : ''}
+    ${p.wounds ? `<section class="banner hurt">🩹 <b>${p.wounds} ${p.wounds === 1 ? 'Verletzung' : 'Verletzungen'}</b> (−${p.wounds * WOUND_MALUS * 100} % im Kampf). Heilt durch gesunde Lebensweise, Kurse, Dehnen – oder mit der Zeit.</section>` : ''}
+    <div class="minis">
+      <div class="mini" data-act="tab" data-arg="profil">
+        <b>🎁 Woche ${Math.min(weekDays, WEEK_GOAL_DAYS)}/${WEEK_GOAL_DAYS}</b>
+        <small>${weekDays >= WEEK_GOAL_DAYS ? 'Truhe geöffnet ✓' : 'Trainingstage bis zur Truhe'}${streak ? ` · 🔥 ${streak}` : ''}</small>
+      </div>
+      <div class="mini" data-act="tab" data-arg="profil">
+        <b>🤝 Team ${Math.min(team, TEAM_GOAL_DAYS)}/${TEAM_GOAL_DAYS}</b>
+        <small>${state.team[weekKey()] ? 'Teamtruhe geöffnet ✓' : 'gemeinsame Trainingstage'}</small>
+      </div>
+    </div>
+    <h2>Training eintragen <small>jede Einheit: +⚡ für die Arena</small></h2>
+    <div class="acts">${ACTIVITIES.map(a => actCard(p, a, cu)).join('')}</div>
+    <h2>Gesund gelebt <small>heilt Verletzungen</small></h2>
+    <div class="health">${HEALTH.map(h => `
+      <button class="chip-btn ${healthDone(p, h.id) ? 'done' : ''}" data-act="health" data-arg="${h.id}" ${healthDone(p, h.id) ? 'disabled' : ''}>
+        ${h.icon} ${h.name}${healthDone(p, h.id) ? ' ✓' : ''}</button>`).join('')}</div>
+    <p class="hint">Nach jeder Einheit einmal tippen. Vertippt? Unter „Profil“ lässt sich der letzte Eintrag zurücknehmen.</p>`;
 }
 
-function attackPanel(v, sel) {
-  const available = UNITS.filter(u => v.units[u.id] > 0);
-  if (!available.length) {
-    return `<p class="hint">⚔️ Du hast keine Truppen im Dorf. ${v.lv.kaserne
-      ? 'Bilde in der Kaserne welche aus.' : 'Baue zuerst eine Kaserne (ab Haupthaus Stufe 3).'}</p>`;
+function actCard(p, a, cu) {
+  const done = doneToday(p, a.id);
+  const full = done >= a.perDay;
+  const gain = {};
+  for (const s in a.gives) gain[s] = a.gives[s] * (1 + cu);
+  const head = `
+    <span class="act-icon">${a.icon}</span>
+    <span class="act-name">${a.name} <small>${done}/${a.perDay} heute</small></span>
+    <span class="act-unit">${a.unit}</span>
+    <span class="act-gain">${full ? 'für heute geschafft ✓' : fmtStats(gain, '+')}</span>`;
+  if (a.course) {
+    return `<div class="act wide course ${full ? 'is-done' : ''}">${head}
+      ${full ? '' : `<div class="course-chips">${COURSES.map(c => `<button class="chip-btn" data-act="train" data-arg="kurs:${c.id}">${c.icon} ${c.name}</button>`).join('')}</div>`}</div>`;
   }
+  return `<button class="act ${a.id === 'milon' ? 'wide main' : ''}" data-act="train" data-arg="${a.id}" ${full ? 'disabled' : ''}>${head}</button>`;
+}
+
+/* ---------- Held ---------- */
+
+function viewHeld() {
+  const p = me();
+  const f = fighterOf(p);
+  const lvl = levelOf(p);
   return `
-    <div class="attack" data-target="${sel.id}">
-      <h3>⚔️ Angriff</h3>
-      ${available.map(u => `
-        <label class="send">
-          <span>${u.icon} ${u.name}</span>
-          <input type="number" id="send-${u.id}" min="0" max="${v.units[u.id]}" value="0" inputmode="numeric">
-          <button type="button" class="btn small" data-act="sendall" data-arg="${u.id}">alle ${v.units[u.id]}</button>
-        </label>`).join('')}
-      ${sel.kind === 'player' && shielded(state.players[sel.id]) ? `<p class="hint">🛡️ ${esc(sel.name)} steht noch ${fmtDur(state.players[sel.id].shieldUntil - Date.now())} unter Schutzschild.</p>` : ''}
-      ${sel.kind === 'player' ? '' : v.lv.zelt
-        ? `<label class="check"><input type="checkbox" id="send-auto"> 🔁 Dauerauftrag – immer wieder plündern</label>`
-        : '<p class="hint">🔒 Daueraufträge gibt es mit dem Feldherrenzelt (Haupthaus 6, Kaserne 4).</p>'}
-      ${sel.kind === 'bot' ? '<p class="hint">⚠️ Bots schlagen zurück – lass ein paar Verteidiger im Dorf.</p>' : ''}
-      <div class="preview hint">Wähle Truppen aus.</div>
-      <button class="btn primary" data-act="attack" data-arg="${sel.id}">Angriff starten</button>
+    <section class="card hero-card">
+      ${heroSvg(p, true)}
+      <div class="hero-side">
+        <b class="hero-name">${esc(p.name)}</b>
+        <small>${rankOf(p.life).icon} ${rankOf(p.life).name} · Level ${lvl}</small>
+        <div class="meter"><i style="width:${(p.xp - xpFor(lvl)) / (xpFor(lvl + 1) - xpFor(lvl)) * 100}%"></i></div>
+        <small>${num(xpFor(lvl + 1) - p.xp)} Wertepunkte bis Level ${lvl + 1}</small>
+        ${Object.entries(STATS).map(([s, info]) => `
+          <div class="stat"><span>${info.icon} ${info.name}</span><b>${num(p.stats[s])}</b></div>`).join('')}
+        <small>⚔️ ${p.life.wins} Siege / ${p.life.fights} Kämpfe · Erfahrung +${Math.round(f.exp * 100)} %</small>
+      </div>
+    </section>
+
+    <h2>Taktiken <small>so stark bist du je Taktik</small></h2>
+    <div class="tactic-info">${Object.entries(TACTICS).map(([t, T]) => `
+      <div class="card tinfo"><span class="big-icon">${T.icon}</span><b>${T.name}</b><small>nutzt ${STATS[T.stat].icon} ${STATS[T.stat].name}${f.bonus[t] ? ` · +${f.bonus[t]} Ausrüstung` : ''}<br>schlägt ${TACTICS[T.beats].icon} ${TACTICS[T.beats].name}</small><b class="tpow">${num(tacticPower(f, t))}</b></div>`).join('')}
+    </div>
+
+    <h2>Standard-Verteidigung <small>falls du nicht rechtzeitig antwortest</small></h2>
+    <div class="card">${[0, 1, 2].map(i => `
+      <div class="defrow"><span>Runde ${i + 1}</span>${Object.entries(TACTICS).map(([t, T]) => `
+        <button class="tbtn small ${p.tactics[i] === t ? 'on' : ''}" data-act="setdefault" data-arg="${i}:${t}">${T.icon}</button>`).join('')}</div>`).join('')}
+    </div>
+
+    <h2>Ausrüstung <small>verborgen, bis der Kampf beginnt</small></h2>
+    ${Object.entries(SLOTS).map(([slot, label]) => `
+      <h3 class="slot">${label}</h3>
+      <div class="items">${ITEMS.filter(it => it.slot === slot).map(it => itemCard(p, it)).join('')}</div>`).join('')}`;
+}
+
+function itemCard(p, it) {
+  const g = needProgress(p, it);
+  const owned = p.owned[it.id];
+  const on = p.equip[it.slot] === it.id;
+  const bonus = Object.entries(it.bonus).map(([t, n]) => `+${n} ${t === 'all' ? 'alle Taktiken' : TACTICS[t].icon}`).join(' ');
+  let action;
+  if (owned) action = `<button class="btn small ${on ? 'primary' : ''}" data-act="equip" data-arg="${it.id}">${on ? 'angelegt ✓' : 'anlegen'}</button>`;
+  else if (g.have >= g.n) action = `<button class="btn small primary" data-act="buy" data-arg="${it.id}" ${p.taler < it.cost ? 'disabled' : ''}>kaufen · ${it.cost} 🪙</button>`;
+  else action = `<div class="meter"><i style="width:${g.have / g.n * 100}%"></i></div><small>🔒 ${g.have}/${g.n} ${g.label}</small>`;
+  return `
+    <div class="card item ${owned ? 'owned' : ''} ${on ? 'on' : ''}">
+      <span class="item-icon">${it.icon}</span>
+      <b>${it.name}</b>
+      <small>${[bonus, it.desc].filter(Boolean).join(' · ')}</small>
+      ${action}
     </div>`;
 }
 
-// Warnung vor heranrückenden Bot-Angriffen
-function incomingBanner(v) {
-  const list = incomingFor(idOf(v));
-  if (!list.length) return '';
-  const def = Math.round(humanDef(v) * wallMult(v));
+/* ---------- Arena ---------- */
+
+function challengeBanner(p) {
+  if (!p.incoming.length) return '';
+  return `<section class="card incoming">${p.incoming.map(d => `
+    <div class="row">
+      <span><b>⚔️ ${esc(d.fromName)} fordert dich heraus!</b>
+      <small>${Date.now() > d.deadline ? 'Frist abgelaufen – wird automatisch ausgetragen' : `noch <b data-eta="${d.deadline}">${fmtDur(d.deadline - Date.now())}</b> – sonst kämpfst du mit deiner Standard-Taktik`}</small></span>
+      ${Date.now() > d.deadline ? '' : `<button class="btn small primary" data-act="answer" data-arg="${d.id}">Annehmen</button>`}
+    </div>`).join('')}</section>`;
+}
+
+function chance(me_, opp) {
+  // grobe Siegchance: beste eigene Taktik gegen den Durchschnitt des Gegners
+  const mine = Math.max(...'ABC'.split('').map(t => tacticPower(me_, t, true)));
+  const theirs = sum('ABC'.split('').map(t => tacticPower(opp, t))) / 3;
+  const r = mine / theirs;
+  return r >= 1.3 ? ['🟢', 'gute Chancen'] : r >= 0.95 ? ['🟠', 'ausgeglichen'] : ['🔴', 'schwer'];
+}
+
+function viewArena() {
+  const p = me();
+  if (duelTarget || answering) return duelSetup(p);
+  const mf = fighterOf(p);
+  const humans = Object.keys(state.players).filter(id => id !== state.current);
+  const boss = bossOfWeek();
+  const bossDone = p.bossWeek === weekKey();
+  const fresh = freshReport && p.reports.find(r => r.id === freshReport);
   return `
-    <section class="card incoming">${list.map(a => {
-      const bot = byId(BOTS, a.bot);
-      const { att } = botPower(bot, v, a.arrive);
-      const odds = def > att * 1.2 ? '🟢 deine Verteidigung sollte halten' : def > att ? '🟠 wird knapp' : '🔴 deine Verteidigung reicht wohl nicht';
-      return `
-        <div class="row">
-          <span><b>${a.kind === 'revenge' ? '😠 Gegenschlag' : '🔥 Angriff'} von ${bot.icon} ${esc(bot.name)}</b>
-          <small>Stärke ca. ${att} gegen deine ${def} 🛡️ · ${odds}</small></span>
-          <small>in <b data-eta="${a.arrive}">${fmtDur(a.arrive - Date.now())}</b></small>
-        </div>`;
+    ${fresh ? reportCard(fresh, true) : ''}
+    ${challengeBanner(p)}
+    ${p.outgoing.length ? `<section class="card waiting">${p.outgoing.map(o => `
+      <div class="row"><span><b>⏳ Warte auf ${esc(o.toName)}</b><small>wird spätestens in <b data-eta="${o.deadline}">${fmtDur(o.deadline - Date.now())}</b> automatisch ausgetragen</small></span></div>`).join('')}</section>` : ''}
+    <p class="hint">${p.energy ? `⚡ ${p.energy} Kämpfe möglich – jeder Kampf kostet 1 ⚡.` : '⚡ Keine Energie mehr – jedes Training lädt 1 ⚡ auf.'}</p>
+
+    <h2>Mitspieler</h2>
+    ${humans.map(id => {
+      const o = state.players[id];
+      const [dot, txt] = chance(mf, fighterOf(o));
+      const waiting = p.outgoing.some(x => x.to === id);
+      return oppRow(id, '🦸', o.name, `Level ${levelOf(o)} · ${num(o.ruhm)} 🏆 · ${dot} ${txt}`, waiting ? 'wartet …' : 'Herausfordern', waiting || !p.energy);
     }).join('')}
-      <small class="muted">Tipp: Bogenschützen und Wall verteidigen am besten – oder schnell noch trainieren und ausbauen.</small>
+
+    <h2>Wochenboss <small>neu jeden Montag</small></h2>
+    ${oppRow('boss', boss.icon, boss.name, bossDone ? '✓ diese Woche besiegt' : `${boss.bot.info} · Belohnung ${BOSS_REWARD} 🪙 · ${chance(mf, boss).join(' ')}`, bossDone ? 'besiegt' : 'Kämpfen', bossDone || !p.energy, 'boss')}
+
+    <h2>Bot-Helden</h2>
+    ${BOTS.map(b => { const f = fighterOfBot(b); const [dot, txt] = chance(mf, f);
+      return oppRow(b.id, b.icon, b.name, `Level ${f.level} · ${b.info} · ${dot} ${txt}`, 'Kämpfen', !p.energy); }).join('')}
+
+    ${p.reports.length ? `<h2>Kampfberichte</h2>${p.reports.slice(0, 8).map(r => reportCard(r, false)).join('')}` : ''}`;
+}
+
+function oppRow(id, icon, name, info, label, disabled, cls = '') {
+  return `
+    <div class="card opp ${cls}">
+      <span class="big-icon">${icon}</span>
+      <div class="bld-title"><b>${esc(name)}</b><small>${info}</small></div>
+      <button class="btn small primary" data-act="opp" data-arg="${id}" ${disabled ? 'disabled' : ''}>${label}</button>
+    </div>`;
+}
+
+function duelSetup(p) {
+  const d = answering && p.incoming.find(x => x.id === answering);
+  const opp = d ? d.snap : opponentOf(duelTarget);
+  const mf = fighterOf(p);
+  const see = mf.reveal;
+  const title = d ? `${esc(d.fromName)} fordert dich heraus` : `Kampf gegen ${esc(opp.name)}`;
+  return `
+    <section class="card duel">
+      <div class="goal-head">
+        <span class="big-icon">${opp.icon}</span>
+        <div class="bld-title"><b>${title}</b><small>Level ${opp.level}${opp.bot ? ' · ' + opp.bot.info : ''}</small></div>
+        <button class="btn small" data-act="closeduel">✕</button>
+      </div>
+      <div class="intel">
+        ${see ? `🔮 <b>Weitsicht:</b> ${opp.items.length ? opp.items.map(id => `${itemOf(id).icon} ${itemOf(id).name}`).join(', ') : 'keine Ausrüstung'} · Lieblingstaktik ${TACTICS[opp.favorite].icon} ${TACTICS[opp.favorite].name}`
+          : '❔ Ausrüstung und Taktik des Gegners sind verborgen – das 🔮 Amulett der Weitsicht würde sie zeigen.'}
+        ${d ? '<br>⚠️ Der Herausforderer hat seine 3 Taktiken schon gewählt und bekommt +10 % Angriffsbonus.' : '<br>💥 Als Herausforderer bekommst du +10 % Angriffsbonus.'}
+      </div>
+      <h3>Wähle deine Taktik für Runde ${Math.min(3, duelPick.length + 1)} von 3</h3>
+      <div class="picked">${[0, 1, 2].map(i => `<span class="pick ${duelPick[i] ? 'on' : ''}">${duelPick[i] ? TACTICS[duelPick[i]].icon : i + 1}</span>`).join('')}
+        ${duelPick.length ? '<button class="btn small" data-act="clearpick">neu wählen</button>' : ''}</div>
+      <div class="tactics">${Object.entries(TACTICS).map(([t, T]) => `
+        <button class="tbtn" data-act="tactic" data-arg="${t}" ${duelPick.length >= 3 ? 'disabled' : ''}>
+          <span>${T.icon}</span><b>${T.name}</b><small>Kraft ${num(tacticPower(mf, t, !d))} · schlägt ${TACTICS[T.beats].icon}</small></button>`).join('')}
+      </div>
+      <button class="btn primary big" data-act="fight" ${duelPick.length < 3 ? 'disabled' : ''}>
+        ${d ? '⚔️ Kämpfen!' : state.players[duelTarget] ? `⚔️ Herausforderung schicken (1 ⚡)` : '⚔️ Kampf! (1 ⚡)'}</button>
+      <p class="hint">${TACTICS.A.icon} Distanz schlägt ${TACTICS.C.icon} Ansturm · ${TACTICS.C.icon} Ansturm schlägt ${TACTICS.B.icon} Hinterhalt · ${TACTICS.B.icon} Hinterhalt schlägt ${TACTICS.A.icon} Distanz. Dazu kommt ein bisschen Glück 🎲.</p>
     </section>`;
 }
 
-function updateAttackPreview() {
-  const box = document.querySelector('.attack');
-  if (!box) return;
-  const units = readSendInputs();
-  const out = box.querySelector('.preview');
-  if (!sum(units)) { out.textContent = 'Wähle Truppen aus.'; return; }
-  const human = state.players[box.dataset.target];
-  const mor = human ? morale(points(me()), points(human)) : 1;
-  const att = Math.round(UNITS.reduce((s, u) => s + (units[u.id] || 0) * u.att, 0) * mor);
-  const carry = UNITS.reduce((s, u) => s + (units[u.id] || 0) * u.carry, 0);
-  const ratio = att / targetOf(box.dataset.target, units.ramme || 0).def;
-  const chance = ratio >= 1.4 ? '🟢 Gute Chancen' : ratio > 1 ? '🟠 Knapp' : '🔴 Sehr riskant';
-  const travel = travelTime(units, distance(state.current, box.dataset.target));
-  out.innerHTML = `<b>${chance}</b> · Angriffskraft ${att} · tragen bis ${num(carry)} Beute<br>
-    ${mor < 1 ? `💢 Kampfgeist ${Math.round(mor * 100)} % – ${esc(human.name)} ist viel kleiner als du<br>` : ''}
-    Weg: ${fmtDur(travel)} hin, genauso lange zurück`;
+function reportCard(r, animate) {
+  const meName = 'Dein Held';
+  const rows = r.rounds.map((x, i) => {
+    const [mt, ot, ms, os] = r.mineAtt ? [x.a, x.d, x.as, x.ds] : [x.d, x.a, x.ds, x.as];
+    const won = ms > os || (ms === os && r.mineAtt);
+    const key = won ? mt + ot : ot + mt;
+    const who = won ? meName : esc(r.opp);
+    return `
+      <div class="round ${won ? 'won' : 'lost'}" style="${animate ? `animation-delay:${0.4 + i * 0.9}s` : ''}">
+        <div class="round-vs"><span>${TACTICS[mt].icon} <b>${ms}</b></span><small>Runde ${i + 1}</small><span><b>${os}</b> ${TACTICS[ot].icon}</span></div>
+        <small>${who} ${FLAVOR[key] || 'gewinnt die Runde'}</small>
+      </div>`;
+  }).join('');
+  const kindLabel = { human: 'Duell', bot: 'Arena', boss: 'Wochenboss' }[r.kind];
+  return `
+    <section class="card report ${r.win ? 'won' : 'lost'} ${animate ? 'fresh' : ''}">
+      <div class="goal-head">
+        <span class="big-icon">${r.oppIcon}</span>
+        <div class="bld-title"><b>${kindLabel} gegen ${esc(r.opp)}</b><small>${r.mineAtt ? 'du hast angegriffen' : 'du hast verteidigt'}${r.auto ? ' · automatisch' : ''} · ${fmtTime(r.t)}</small></div>
+      </div>
+      ${rows}
+      <div class="verdict" style="${animate ? 'animation-delay:3.2s' : ''}">
+        <b>${r.win ? '🏆 Sieg!' : '💀 Niederlage'}</b>
+        <small>${r.delta ? `${r.delta > 0 ? '+' : ''}${r.delta} 🏆 Ruhm · ` : ''}+${r.taler} 🪙${r.wound ? ' · 🩹 verletzt' : ''}</small>
+      </div>
+      ${animate ? '<button class="btn small" data-act="seen">OK</button>' : ''}
+    </section>`;
 }
 
-function missionList(v) {
-  if (!v.missions.length) return '';
-  const now = Date.now();
-  return `
-    <div class="card list missions">${v.missions.map((m, i) => {
-      const out = !m.done;
-      const auto = m.auto && !m.stop;
-      return `
-        <div class="row">
-          <span>${auto ? '🔁' : out ? '⚔️' : '↩️'} ${esc(m.name)} <small>${fmtUnits(out ? m.units : m.survivors)}${auto ? ' · Dauerauftrag' : ''}</small></span>
-          <small>${out ? 'Ankunft' : 'zurück'} in <b data-eta="${out ? m.arrive : m.back}">${fmtDur((out ? m.arrive : m.back) - now)}</b>
-          ${auto ? `<button class="btn small" data-act="stopauto" data-arg="${i}">Stopp</button>` : ''}</small>
-        </div>`;
-    }).join('')}</div>`;
-}
-
-function reportList(v) {
-  if (!v.reports.length) return '';
-  const fmtTime = t => new Date(t).toLocaleString('de-DE', { weekday: 'short', hour: '2-digit', minute: '2-digit' });
-  return `
-    <h2>Berichte</h2>
-    <div class="card list">${v.reports.slice(0, 10).map(r => {
-      let head, body;
-      if (r.shield) {
-        head = r.incoming ? `🛡️ ${esc(r.name)} prallt an deinem Schutzschild ab` : `🛡️ ${esc(r.name)} hatte Schutzschild`;
-        body = r.incoming ? 'Kein Kampf.' : 'Deine Truppen sind umgekehrt.';
-      } else if (r.incoming) {
-        const from = r.revenge ? 'Gegenschlag' : 'Angriff';
-        head = r.win ? `🛡️ ${from} von ${esc(r.name)} abgewehrt` : `🔥 ${esc(r.name)} hat dich überfallen`;
-        body = `Verluste: ${fmtUnits(r.lost)}${sum(r.loot) ? ` · geraubt: ${fmtRes(r.loot)}` : ''}`;
-        if (r.bonus && sum(r.bonus)) body += ` · zurückgelassene Beute: ${fmtRes(r.bonus, '+')}`;
-        if (r.att) body += ` · ⚔️ ${r.att} gegen 🛡️ ${r.def}`;
-        if (r.shieldOn) body += ` · 🛡️ ${SHIELD_H} Std. Schutzschild`;
-      } else {
-        head = r.win ? `⚔️ Sieg gegen ${esc(r.name)}` : `💀 Niederlage gegen ${esc(r.name)}`;
-        body = `Gesendet: ${fmtUnits(r.sent)} · Verluste: ${fmtUnits(r.lost)}${r.win ? ` · Beute: ${fmtRes(r.loot, '+') || 'nichts'}` : ''}`;
-        if (r.morale) body += ` · 💢 Kampfgeist ${Math.round(r.morale * 100)} %`;
-      }
-      if (r.wallDown) body += ` · 🐏 Wall −${r.wallDown}`;
-      return `<div class="row report ${r.win ? 'won' : 'lost'}"><span><b>${head}</b><small>${body}</small></span><small>${fmtTime(r.t)}</small></div>`;
-    }).join('')}</div>`;
-}
+/* ---------- Rangliste ---------- */
 
 function viewRang() {
   const rows = standings();
   const medal = i => ['🥇', '🥈', '🥉'][i] || `${i + 1}.`;
   const left = daysLeft();
-  const statue = byId(BUILDINGS, 'statue');
-
   return `
     <h2>Saison ${state.season.no} <small>${state.season.winner ? 'beendet' : `noch ${left} ${left === 1 ? 'Tag' : 'Tage'}`}</small></h2>
-    <section class="card goal">
-      <div class="goal-head">
-        <span class="big-icon">${statue.icon}</span>
-        <div class="bld-title">
-          <b>Saisonziel: die Stahlstatue</b>
-          <small>Wer sie zuerst errichtet, gewinnt sofort (braucht Haupthaus ${statue.req.haupthaus} und Speicher ${statue.req.speicher}).
-          Schafft es niemand, gewinnt nach ${state.season.weeks} Wochen, wer die meisten Punkte hat – auch ein Bot.</small>
-        </div>
-      </div>
-    </section>
-    <div class="card list">${rows.map((row, i) => `
-      <div class="row ${row.pid === state.current ? 'me' : ''}">
+    <p class="hint">Wer nach ${state.season.weeks} Wochen den meisten 🏆 Ruhm hat, wird Champion – auch ein Bot kann gewinnen. Eure Helden bleiben über alle Saisons, nur der Ruhm startet neu.</p>
+    <div class="card list">${rows.map((r, i) => `
+      <div class="row ${r.pid === state.current ? 'me' : ''}">
         <span class="rank">${medal(i)}</span>
-        <span class="big-icon who-icon">${row.icon}</span>
-        <span class="who"><b>${esc(row.name)}</b>${row.bot ? `<small>Bot · ${row.bot.info}</small>` : `<small>${rankOf(row.v.life).name}</small>`}</span>
-        <span class="pts"><b>${num(points(row.v))}</b><small>Haupthaus ${row.v.lv.haupthaus}</small></span>
+        <span class="big-icon who-icon">${r.icon}</span>
+        <span class="who"><b>${esc(r.name)}</b><small>${esc(r.info)}</small></span>
+        <span class="pts"><b>${num(r.ruhm)}</b><small>Level ${r.level}</small></span>
       </div>`).join('')}</div>
-    <p class="hint">Punkte gibt es für alles, was gebaut wird. Die ${BOTS.length} Bots wachsen jeden Tag von allein – Mia und Fritz sind leicht zu schlagen, Egon und Horst nur mit viel Fleiß.</p>
 
     <h2>🏛️ Ruhmeshalle</h2>
     <div class="card list">${state.hall.length ? state.hall.map(h => `
@@ -1797,119 +1239,68 @@ function viewRang() {
       : '<div class="row muted">Noch leer – wer wird der erste Champion?</div>'}</div>`;
 }
 
+/* ---------- Profil ---------- */
+
 function viewProfil() {
-  const v = me();
-  const L = v.life;
+  const p = me();
+  const L = p.life;
   const rank = rankOf(L), next = nextRank(L);
-  const pct = next ? (L.rounds - rank.min) / (next.min - rank.min) * 100 : 100;
+  const pct = next ? (L.sessions - rank.min) / (next.min - rank.min) * 100 : 100;
   const weekDays = L.weeks[weekKey()] || 0;
   const streak = currentStreak(L);
   const earned = new Set(earnedBadges(L));
   const dots = Array.from({ length: WEEK_GOAL_DAYS }, (_, i) => `<i class="${i < weekDays ? 'on' : ''}"></i>`).join('');
   return `
-    <h2>Profil von ${esc(v.name)}</h2>
-    <section class="card rankcard">
-      <div class="goal-head">
-        <span class="big-icon">${rank.icon}</span>
-        <div class="bld-title">
-          <b>${rank.name}</b>
-          <small>${rank.bonus ? `für immer +${Math.round(rank.bonus * 100)} % auf alle Rohstoffe` : 'dein Weg zum Stahl beginnt'}</small>
-        </div>
-      </div>
+    <h2>Profil von ${esc(p.name)}</h2>
+    <section class="card">
+      <div class="goal-head"><span class="big-icon">${rank.icon}</span>
+        <div class="bld-title"><b>${rank.name}</b><small>Rang nach Trainingseinheiten – bleibt für immer</small></div></div>
       <div class="meter big"><i style="width:${pct}%"></i></div>
-      <small>${next ? `${L.rounds} / ${next.min} Durchgänge → ${next.icon} ${next.name} (+${Math.round(next.bonus * 100)} %)` : `${L.rounds} Durchgänge – höchster Rang erreicht!`}</small>
+      <small>${next ? `${L.sessions} / ${next.min} Einheiten → ${next.icon} ${next.name}` : `${L.sessions} Einheiten – höchster Rang!`}</small>
     </section>
-
     <section class="card">
-      <div class="goal-head">
-        <span class="big-icon">🎁</span>
-        <div class="bld-title">
-          <b>Wochenziel: ${WEEK_GOAL_DAYS} Trainingstage</b>
-          <small>${weekDays >= WEEK_GOAL_DAYS ? 'Geschafft – Truhe geöffnet!' : `Truhe diese Woche: ${fmtRes(chestFor(streak + 1))}`}</small>
-        </div>
-        <span class="dots">${dots}</span>
-      </div>
-      <small>${streak ? `🔥 ${streak} ${streak === 1 ? 'Woche' : 'Wochen'} in Folge – jede weitere macht die Truhe 25 % größer (bis doppelt)` : 'Schaffe das Ziel mehrere Wochen hintereinander, dann wächst die Truhe.'}</small>
+      <div class="goal-head"><span class="big-icon">🎁</span>
+        <div class="bld-title"><b>Wochenziel: ${WEEK_GOAL_DAYS} Trainingstage</b>
+          <small>${weekDays >= WEEK_GOAL_DAYS ? 'Geschafft – Truhe geöffnet!' : `Truhe: ${chestFor(streak + 1)} 🪙 + 1 ⚡`}</small></div>
+        <span class="dots">${dots}</span></div>
+      <small>${streak ? `🔥 ${streak} ${streak === 1 ? 'Woche' : 'Wochen'} in Folge – die Truhe wächst (bis doppelt)` : 'Mehrere Wochen hintereinander, dann wächst die Truhe.'}</small>
     </section>
-
     <section class="card">
-      <div class="goal-head">
-        <span class="big-icon">🤝</span>
-        <div class="bld-title">
-          <b>Teamziel: zusammen ${TEAM_GOAL_DAYS} Trainingstage</b>
-          <small>${state.team[weekKey()] ? 'Geschafft – Teamtruhe für euch beide geöffnet!' : `Diese Woche ${teamDays()} / ${TEAM_GOAL_DAYS} · Teamtruhe für beide: ${fmtRes(TEAM_CHEST)}`}</small>
-        </div>
-      </div>
+      <div class="goal-head"><span class="big-icon">🤝</span>
+        <div class="bld-title"><b>Teamziel: zusammen ${TEAM_GOAL_DAYS} Trainingstage</b>
+          <small>${state.team[weekKey()] ? 'Geschafft – Teamtruhe geöffnet!' : `Diese Woche ${teamDays()} / ${TEAM_GOAL_DAYS} · für beide ${TEAM_CHEST} 🪙 + 1 ⚡`}</small></div></div>
     </section>
-
     <div class="stats">
-      <div><b>${num(L.rounds)}</b><small>Durchgänge</small></div>
+      <div><b>${num(L.sessions)}</b><small>Einheiten</small></div>
       <div><b>${num(L.days)}</b><small>Trainingstage</small></div>
-      <div><b>${num(L.courses)}</b><small>Kurse</small></div>
+      <div><b>${num(L.wins)}</b><small>Siege</small></div>
       <div><b>${L.bestStreak}</b><small>beste Serie</small></div>
     </div>
-
-    <h2>⚙️ Automatisierungen</h2>
-    <div class="card list autos">
-      ${autoRow(v.lv.holzfaeller || v.lv.lehmgrube || v.lv.schmiede, '🌲', 'Passive Produktion',
-        `${fmtRes(Object.fromEntries(Object.keys(RES).map(r => [r, Math.round(passivePerDay(v, r))])), '+') || 'nichts'} pro Tag von allein`,
-        'Holzfäller, Lehmgrube oder Schmiede bauen')}
-      ${autoRow(v.lv.haupthaus >= SECOND_SLOT_HQ, '🏗️', 'Zweite Baustelle', 'zwei Gebäude gleichzeitig bauen', `Haupthaus Stufe ${SECOND_SLOT_HQ}`)}
-      ${autoRow(v.lv.zelt, '🔁', 'Daueraufträge', 'Truppen plündern Ruinen und Bots immer wieder – auf der Karte einschalten', 'Feldherrenzelt bauen')}
-      ${autoRow(L.rounds >= AUTO_RECRUIT_RANK, '⚙️', 'Auto-Ausbildung',
-        `Ist der Speicher zu ${AUTO_RECRUIT_FULL * 100} % voll, wird alles über ${AUTO_RECRUIT_KEEP * 100} % zu Truppen:
-        <select id="auto-recruit"><option value="">aus</option>${UNITS.filter(u => v.lv[u.at] >= (u.req || 1)).map(u =>
-          `<option value="${u.id}" ${v.autoRecruit === u.id ? 'selected' : ''}>${u.icon} ${u.name}</option>`).join('')}</select>`,
-        `Rang Krieger (${AUTO_RECRUIT_RANK} Durchgänge, noch ${Math.max(0, AUTO_RECRUIT_RANK - L.rounds)})`)}
-    </div>
-
-    <h2>⚖️ Fair bleiben</h2>
-    <div class="card list rules">
-      <div class="row"><span>🚀 <b>Aufhol-Bonus:</b> Wer hinten liegt, bekommt +10 % je 10 % Rückstand (bis +${CATCHUP_MAX * 100} %). Bei dir gerade: ${catchUp(v) ? `+${Math.round(catchUp(v) * 100)} %` : 'keiner'}.</span></div>
-      <div class="row"><span>😮‍💨 <b>Erholung:</b> Ab dem ${TIRED_FROM}. Durchgang am Tag gibt es ${TIRED_MALUS * 100} % weniger. Regelmäßig schlägt viel auf einmal.</span></div>
-      <div class="row"><span>💢 <b>Kampfgeist:</b> Wer einen viel Kleineren angreift, kämpft schwächer (bis −50 %).</span></div>
-      <div class="row"><span>🛡️ <b>Schutzschild:</b> Nach einem verlorenen Kampf ${SHIELD_H} Std. Ruhe vor allen Angriffen.</span></div>
-      <div class="row"><span>🎖️ <b>Rang-Bonus:</b> startet jede Saison bei 50 % und ist nach ${RANK_RAMP_ROUNDS} Durchgängen wieder voll. Bei dir gerade +${Math.round(rankBonus(v) * 1000) / 10} %.</span></div>
-      <div class="row"><span>🎯 <b>Bots</b> greifen am liebsten den an, der vorne liegt.</span></div>
-    </div>
-
     <h2>Abzeichen <small>${earned.size} / ${BADGES.length}</small></h2>
     <div class="badges">${BADGES.map(b => `
       <div class="badge ${earned.has(b) ? 'on' : ''}"><span>${b.icon}</span><b>${b.name}</b><small>${b.desc}</small></div>`).join('')}</div>
-    <p class="hint">Rang, Abzeichen und Statistik bleiben für immer – auch wenn eine neue Saison beginnt.</p>
-    ${viewVerlauf(v)}`;
+    ${viewVerlauf(p)}`;
 }
 
-function autoRow(on, icon, name, desc, need) {
-  return `
-    <div class="row auto ${on ? 'on' : 'off'}">
-      <span class="big-icon who-icon">${icon}</span>
-      <span class="who"><b>${name} ${on ? '✓' : '🔒'}</b><small>${on ? desc : 'Freischalten: ' + need}</small></span>
-    </div>`;
-}
-
-function viewVerlauf(v) {
-  const fmtTime = t => new Date(t).toLocaleString('de-DE', { weekday: 'short', day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+function viewVerlauf(p) {
   const line = e => {
     if (e.kind === 'train') {
       const a = byId(ACTIVITIES, e.id);
       const c = e.course && byId(COURSES, e.course);
-      return `${c ? c.icon : a.icon} ${c ? `Kurs: ${c.name}` : a.name} <span class="muted">${fmtRes(e.got, '+')}${e.bonus ? ' ☀️' : ''}</span>`;
+      return `${c ? c.icon : a.icon} ${c ? `Kurs: ${c.name}` : a.name} <span class="muted">${fmtStats(e.got, '+')}${e.firstToday ? ' ☀️' : ''}</span>`;
     }
-    if (e.kind === 'recruit') { const u = byId(UNITS, e.id); return `${u.icon} ${e.n}× ${u.name} ausgebildet`; }
-    if (e.kind === 'autorecruit') { const u = byId(UNITS, e.id); return `⚙️ ${e.n}× ${u.name} automatisch ausgebildet`; }
-    if (e.kind === 'attack') return `${e.auto ? '🔁 Dauerauftrag' : '⚔️ Angriff'} auf ${esc(e.name)} <span class="muted">${fmtUnits(e.units)}</span>`;
-    const b = byId(BUILDINGS, e.id);
-    return `🔨 ${b.name} → Stufe ${e.level}`;
+    if (e.kind === 'health') { const h = byId(HEALTH, e.id); return `${h.icon} ${h.name}${e.healed ? ' · 🩹 geheilt' : ''}`; }
+    if (e.kind === 'buy') { const it = itemOf(e.id); return `${it.icon} ${it.name} gekauft <span class="muted">−${e.cost} 🪙</span>`; }
+    if (e.kind === 'challenge') return `⚔️ ${esc(e.name)} herausgefordert`;
+    return '';
   };
   return `
-    <h2>Verlauf von ${esc(v.name)}</h2>
+    <h2>Verlauf</h2>
     <div class="card list">
-      ${v.log.length ? v.log.slice(0, 40).map(e => `
-        <div class="row log"><span>${line(e)}</span><small>${fmtTime(e.t)}</small></div>`).join('')
+      ${p.log.length ? p.log.slice(0, 40).map(e => `<div class="row log"><span>${line(e)}</span><small>${fmtTime(e.t)}</small></div>`).join('')
         : '<div class="row muted">Noch nichts eingetragen – ab ins Gym! 💪</div>'}
     </div>
-    ${v.log.length && UNDOABLE.includes(v.log[0].kind) ? '<button class="btn" data-act="undo">↩️ Letzten Eintrag rückgängig</button>' : ''}
+    ${p.log.length && ['train', 'health'].includes(p.log[0].kind) ? '<button class="btn" data-act="undo">↩️ Letzten Eintrag rückgängig</button>' : ''}
 
     <h2>Einstellungen</h2>
     <div class="card list">
@@ -1918,8 +1309,9 @@ function viewVerlauf(v) {
       ${online() ? `
         <div class="row"><span>${connected ? '🟢 Online verbunden' : '🟠 Gerade offline – wird nachgeholt, sobald wieder Netz da ist'}</span></div>
         <div class="row"><span>🔗 Einladungslink für Mitspieler</span><button class="btn small" data-act="share">Teilen</button></div>
-        <div class="row"><span>📱 Dieses Handy abmelden</span><button class="btn small" data-act="leave">Abmelden</button></div>`
+        <div class="row"><span>📱 Dieses Gerät abmelden</span><button class="btn small" data-act="leave">Abmelden</button></div>`
       : '<div class="row"><span>📴 Nur auf diesem Gerät</span><button class="btn small" data-act="leave">Online spielen</button></div>'}
+      <div class="row"><span>🏰 Das alte Dorf-Spiel</span><a class="btn small" href="dorf/">Zum Archiv</a></div>
     </div>
     <button class="btn danger" data-act="reset">Spiel zurücksetzen</button>`;
 }
@@ -1935,13 +1327,13 @@ async function loadJoinInfo() {
 }
 
 function viewSetup() {
-  const nameField = `<input id="setup-name" class="field" maxlength="20" placeholder="Dein Name" autocomplete="nickname">`;
+  const nameField = '<input id="setup-name" class="field" maxlength="20" placeholder="Name deines Helden" autocomplete="nickname">';
   if (setupStep === 'invite') {
     return `
       <section class="card setup">
         <div class="setup-icon">🎉</div>
-        <h2>Dein Dorf steht!</h2>
-        <p>Schick jetzt deinem Mitspieler diesen Link. Wer ihn öffnet, bekommt das zweite Dorf in eurer Welt.</p>
+        <h2>Dein Held ist bereit!</h2>
+        <p>Schick jetzt deinem Trainingspartner diesen Link – wer ihn öffnet, betritt eure Arena.</p>
         <div class="linkbox">${esc(inviteLink())}</div>
         <button class="btn primary" data-act="share">🔗 Link teilen</button>
         <button class="btn" data-act="setupdone">Los geht's – ab ins Gym 💪</button>
@@ -1958,22 +1350,22 @@ function viewSetup() {
     return `
       <section class="card setup">
         <div class="setup-icon">⚔️</div>
-        <h2>Einladung nach Muskelburg</h2>
-        <p>Wie heißt du, und welches Dorf übernimmst du?</p>
+        <h2>Einladung in die Arena</h2>
+        <p>Wie heißt dein Held?</p>
         ${nameField}
         ${['a', 'b'].map(pid => {
           const taken = players[pid] && players[pid].updatedAt;
           return `<button class="btn ${taken ? '' : 'primary'}" data-act="join" data-arg="${pid}">
-            ${taken ? `Ich bin ${esc(players[pid].name)} (anderes Handy)` : `Neues Dorf übernehmen`}</button>`;
+            ${taken ? `Ich bin ${esc(players[pid].name)} (anderes Gerät)` : 'Neuen Helden erschaffen'}</button>`;
         }).join('')}
-        <p class="hint">„Anderes Handy“ nur wählen, wenn du schon mitspielst und das Gerät wechselst.</p>
+        <p class="hint">„Anderes Gerät“ nur wählen, wenn du schon mitspielst und das Gerät wechselst.</p>
       </section>`;
   }
   return `
     <section class="card setup">
-      <div class="setup-icon">🏰</div>
-      <h2>Willkommen in Muskelburg</h2>
-      <p>Jeder Milon-Durchgang lässt dein Dorf wachsen. Starte eine neue Welt und lade deinen Trainingspartner ein.</p>
+      <div class="setup-icon">🦸</div>
+      <h2>Willkommen in der Arena</h2>
+      <p>Jedes Training macht deinen Helden stärker: Kraft, Ausdauer, Geist. In Duellen zählen Taktik, Ausrüstung – und ein bisschen Glück.</p>
       ${nameField}
       <button class="btn primary" data-act="create">Neues Spiel starten</button>
       <p class="hint">Du hast einen Einladungslink bekommen? Dann öffne einfach den Link.</p>
@@ -1986,22 +1378,19 @@ function renderSyncDot() {
   if (el) el.className = online() ? (connected ? 'on' : 'off') : '';
 }
 
-const VIEWS = { training: viewTraining, dorf: viewDorf, karte: viewKarte, rang: viewRang, profil: viewProfil };
+const VIEWS = { training: viewTraining, held: viewHeld, arena: viewArena, rang: viewRang, profil: viewProfil };
 
 function seasonBanner() {
   const w = state.season.winner;
   if (!w) return '';
   return `
     <section class="card season-over">
-      <div class="goal-head">
-        <span class="big-icon">🏆</span>
-        <div class="bld-title"><b>Saison ${state.season.no} ist vorbei!</b><small>${esc(w.name)} ${esc(w.how)}.</small></div>
-      </div>
+      <div class="goal-head"><span class="big-icon">🏆</span>
+        <div class="bld-title"><b>Saison ${state.season.no} ist vorbei!</b><small>${esc(w.name)} ${esc(w.how)}.</small></div></div>
       <button class="btn primary" data-act="newSeason">Neue Saison starten</button>
     </section>`;
 }
 
-let lastTab = null;
 function render() {
   const setup = !game || joinId || setupStep;
   document.body.classList.toggle('setup-mode', !!setup);
@@ -2015,34 +1404,7 @@ function render() {
   }
   resolveAll();
   renderHeader();
-  // Kartenausschnitt und eingegebene Truppen beim Neuzeichnen behalten
-  const wrap = document.getElementById('map-wrap');
-  const scroll = wrap && lastTab === tab ? [wrap.scrollLeft, wrap.scrollTop] : null;
-  const box = document.querySelector('.attack');
-  const inputs = {};
-  if (box) for (const el of box.querySelectorAll('input')) inputs[el.id] = el.type === 'checkbox' ? el.checked : el.value;
-  const oldTarget = box && box.dataset.target;
-
   document.getElementById('view').innerHTML = seasonBanner() + VIEWS[tab]();
-
-  const newWrap = document.getElementById('map-wrap');
-  if (newWrap) {
-    if (scroll) [newWrap.scrollLeft, newWrap.scrollTop] = scroll;
-    else { // auf das eigene Dorf zentrieren
-      const [x, y] = posOf(state.current);
-      newWrap.scrollLeft = x * 28 + 14 - newWrap.clientWidth / 2;
-      newWrap.scrollTop = y * 28 + 14 - newWrap.clientHeight / 2;
-    }
-  }
-  const newBox = document.querySelector('.attack');
-  if (newBox && newBox.dataset.target === oldTarget) {
-    for (const [id, val] of Object.entries(inputs)) {
-      const el = document.getElementById(id);
-      if (el) el.type === 'checkbox' ? (el.checked = val) : (el.value = val);
-    }
-  }
-  lastTab = tab;
-  updateAttackPreview();
 }
 
 // Meldungen nacheinander anzeigen (höchstens 3 in der Warteschlange)
@@ -2063,19 +1425,13 @@ function nextToast() {
   setTimeout(() => { el.className = ''; setTimeout(nextToast, 250); }, t[1] ? 2600 : 1600);
 }
 
-// Tageswechsel berücksichtigen, wenn die App wieder geöffnet wird
 document.addEventListener('visibilitychange', () => { if (!document.hidden) render(); });
-document.addEventListener('input', e => { if (e.target.closest('.attack')) updateAttackPreview(); });
 
-// Countdowns (Truppen, Baustelle) jede Sekunde aktualisieren
+// Countdowns jede Sekunde aktualisieren
 setInterval(() => {
   if (resolveAll()) { render(); return; }
   const now = Date.now();
   for (const el of document.querySelectorAll('[data-eta]')) el.textContent = fmtDur(Number(el.dataset.eta) - now);
-  for (const el of document.querySelectorAll('[data-prog]')) {
-    const [s, e] = el.dataset.prog.split(',').map(Number);
-    el.style.width = Math.min(100, (now - s) / (e - s) * 100) + '%';
-  }
 }, 1000);
 
 render();

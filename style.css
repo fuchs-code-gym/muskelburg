@@ -320,3 +320,93 @@ h2 small { font-weight: 400; font-size: 13px; }
 }
 #toast.show { opacity: 1; transform: translate(-50%, 0); }
 #toast.big { font-size: 17px; padding: 14px 20px; }
+
+/* =========================================================
+   Arena der Helden
+   ========================================================= */
+.res .hearts { font-size: 12px; margin-top: 2px; letter-spacing: 1px; }
+.meter.energy i { background: #e0a526; }
+.banner.hurt { background: color-mix(in srgb, var(--bad) 12%, var(--surface)); }
+.act.wide { grid-column: 1 / -1; }
+.act.main { align-items: center; text-align: center; padding: 18px; }
+.act.main .act-icon { font-size: 36px; }
+.act.main .act-name { font-size: 18px; }
+.act.course { align-items: center; text-align: center; }
+.health { display: flex; flex-wrap: wrap; gap: 8px; }
+.chip-btn.done { opacity: .55; }
+.chip-btn:disabled { cursor: default; }
+.tab-badge { font-style: normal; font-size: 10px; font-weight: 700; background: var(--bad); color: #fff; border-radius: 999px; padding: 0 5px; margin-left: -4px; vertical-align: top; filter: none; }
+.tab-badge:empty { display: none; }
+
+/* Held */
+.hero { width: 110px; height: 110px; flex-shrink: 0; }
+.hero.big { width: 150px; height: 150px; }
+.h-shadow { fill: rgba(0, 0, 0, .15); }
+.h-aura { fill: color-mix(in srgb, #8e6bd8 18%, transparent); stroke: color-mix(in srgb, #8e6bd8 40%, transparent); }
+.h-lvl { font-size: 8px; font-weight: 700; text-anchor: middle; fill: var(--accent); }
+.hero-card { display: flex; gap: 12px; align-items: center; }
+.hero-side { flex: 1; display: flex; flex-direction: column; gap: 4px; min-width: 0; }
+.hero-name { font-size: 19px; }
+.stat { display: flex; justify-content: space-between; font-size: 15px; border-bottom: 1px dashed var(--line); padding: 2px 0; }
+.tactic-info { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.tinfo { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 2px; padding: 10px 6px; margin: 0; }
+.tinfo small { font-size: 11px; }
+.tpow { font-size: 20px; color: var(--accent); }
+.defrow { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
+.defrow span { flex: 1; }
+h3.slot { font-size: 14px; margin: 14px 0 6px; color: var(--muted); }
+.items { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px; }
+.item { display: flex; flex-direction: column; gap: 4px; margin: 0; opacity: .75; }
+.item.owned { opacity: 1; }
+.item.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.item small { font-size: 12px; }
+.item-icon { font-size: 28px; }
+.item .btn.small { align-self: flex-start; }
+
+/* Arena */
+.opp { display: flex; align-items: center; gap: 10px; }
+.opp.boss { border-color: var(--bad); }
+.incoming { border-color: var(--bad); }
+.incoming .row span, .waiting .row span { display: flex; flex-direction: column; min-width: 0; }
+.waiting { border-color: var(--accent); }
+.duel { border-color: var(--accent); }
+.duel h3 { font-size: 15px; margin: 14px 0 8px; }
+.intel { margin-top: 10px; font-size: 13px; background: var(--surface-2); border-radius: 10px; padding: 8px 10px; }
+.picked { display: flex; align-items: center; gap: 8px; margin-bottom: 10px; }
+.pick { width: 40px; height: 40px; border-radius: 10px; display: grid; place-items: center; font-size: 20px;
+  border: 2px dashed var(--line); color: var(--muted); }
+.pick.on { border: 2px solid var(--accent); background: var(--surface-2); }
+.tactics { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 10px; }
+.tbtn {
+  display: flex; flex-direction: column; align-items: center; gap: 2px; text-align: center;
+  padding: 10px 4px; border-radius: 12px; border: 1px solid var(--line); background: var(--surface-2);
+}
+.tbtn span { font-size: 28px; }
+.tbtn b { font-size: 13px; }
+.tbtn small { font-size: 11px; }
+.tbtn:active:not(:disabled) { transform: scale(.96); }
+.tbtn:disabled { opacity: .45; }
+.tbtn.small { flex-direction: row; padding: 4px 10px; font-size: 18px; flex: 0 0 auto; }
+.tbtn.on { background: var(--accent); border-color: var(--accent); }
+.btn.big { font-size: 17px; padding: 14px; }
+
+/* Kampfbericht */
+.report span { display: inline; }
+.report .goal-head { margin-bottom: 8px; }
+.round { border-top: 1px solid var(--line); padding: 8px 0; }
+.round-vs { display: flex; justify-content: space-between; align-items: center; font-size: 18px; }
+.round-vs small { font-size: 12px; }
+.round.won .round-vs span:first-child b { color: var(--good); }
+.round.lost .round-vs span:last-child b { color: var(--bad); }
+.round > small { display: block; text-align: center; font-size: 12px; }
+.verdict { border-top: 1px solid var(--line); padding-top: 8px; text-align: center; display: flex; flex-direction: column; }
+.verdict b { font-size: 20px; }
+.report.won .verdict b { color: var(--good); }
+.report.lost .verdict b { color: var(--bad); }
+.report.fresh { border-color: var(--accent); }
+.report.fresh .round, .report.fresh .verdict { opacity: 0; animation: reveal .5s ease-out forwards; }
+.report .btn.small { margin-top: 8px; }
+@keyframes reveal { from { opacity: 0; transform: translateY(6px); } to { opacity: 1; transform: none; } }
+@media (prefers-reduced-motion: reduce) {
+  .report.fresh .round, .report.fresh .verdict { animation: none; opacity: 1; }
+}

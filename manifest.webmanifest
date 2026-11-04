@@ -1,7 +1,7 @@
 {
   "name": "Muskelburg",
   "short_name": "Muskelburg",
-  "description": "Gym-Training baut dein Dorf aus",
+  "description": "Gym-Training macht deinen Helden stark",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",

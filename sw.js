@@ -1,5 +1,5 @@
 // Offline-Unterstützung: erst Netz, bei Funkloch aus dem Cache
-const CACHE = 'muskelburg-v2';
+const CACHE = 'muskelburg-v3';
 const FILES = ['./', './index.html', './style.css', './app.js', './sync.js', './manifest.webmanifest', './icon.svg', './icon-192.png', './icon-512.png'];
 
 self.addEventListener('install', e => {
