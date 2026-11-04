@@ -450,3 +450,38 @@ body.ov-open { overflow: hidden; }
   background: var(--surface-2); border: 1px solid var(--line); }
 .stake-pick .course-chips { margin: 2px 0 0; }
 .chip-btn.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+/* ---------- Entschlackt: Jagd ---------- */
+.bet { display: flex; flex-direction: column; gap: 3px; margin-top: 10px; padding: 9px 12px; border-radius: 12px; font-size: 14px; cursor: pointer;
+  background: var(--surface-2); border: 1px solid var(--line); }
+.bet i { color: var(--muted); }
+.monline { display: flex; align-items: center; gap: 6px; flex-wrap: wrap; margin-top: 8px; font-size: 13.5px; }
+.monline span { color: var(--muted); }
+.monline.down { opacity: .6; }
+.train-btn { width: 100%; margin: 14px 0 10px; font-size: 18px; padding: 16px; }
+.today { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 10px 14px; border-radius: 14px;
+  background: var(--surface); border: 1px solid var(--line); font-size: 14px; }
+
+/* Auswahlfenster von unten */
+.sheet-wrap { place-items: end center; padding: 0; }
+.sheet { text-align: left; border-radius: 22px 22px 0 0; max-height: 88vh; padding-bottom: calc(18px + env(safe-area-inset-bottom)); animation: sheetUp .22s ease-out; }
+@keyframes sheetUp { from { transform: translateY(40px); opacity: 0; } }
+.sheet-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+.sheet-head h2 { margin: 0; }
+.actrow { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; padding: 12px 14px; margin-bottom: 8px;
+  border-radius: 14px; border: 1px solid var(--line); background: var(--surface-2); color: var(--text); font: inherit; cursor: pointer; }
+.actrow.course { flex-wrap: wrap; cursor: default; }
+.actrow.course .course-chips { width: 100%; margin: 4px 0 0; }
+.actrow .bld-title { flex: 1; }
+.actrow .go { font-size: 24px; color: var(--muted); }
+.actrow:disabled, .actrow.is-done { opacity: .5; }
+
+/* ---------- Entschlackt: Held ---------- */
+.gear-slots { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; }
+.gslot { display: flex; flex-direction: column; align-items: center; text-align: center; gap: 2px; padding: 12px 6px; border: 2px solid var(--rar, var(--line)); }
+.gslot.empty { opacity: .55; border-style: dashed; }
+.gslot b { font-size: 13px; line-height: 1.2; }
+.gslot .rar { color: var(--rar); font-weight: 800; }
+.spar-btn { width: 100%; margin-top: 16px; display: flex; flex-direction: column; gap: 2px; }
+.spar-btn small { font-weight: 600; opacity: .75; text-transform: none; letter-spacing: 0; }
+.back-btn { margin-bottom: 10px; }

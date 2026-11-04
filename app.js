@@ -209,6 +209,7 @@ let duelPick = [], answering = null, duelOpen = false, freshReport = null;
 let pending = null;       // Training, das gerade eingetragen wird (Minispiel)
 let hitShow = null;       // Ergebnis-Anzeige nach dem Treffer
 let prOn = false;         // „Neuer Rekord“ angehakt
+let sheetOpen = false;    // Auswahlfenster „Training eintragen“
 const me = () => state.players[state.current];
 
 /* =========================================================
@@ -565,14 +566,21 @@ function dropLoot(p, minRarity = 0) {
   const item = { uid: rid(), g: g.id, r: rar.id, at: Date.now() };
   p.inv.unshift(item);
   if (rar.id === 'legendary') p.life.legendaries++;
-  // volles Inventar: schwächstes, nicht angelegtes Teil fliegt raus
-  while (p.inv.length > INV_MAX) {
-    const worn = new Set(Object.values(p.equip));
-    const spare = p.inv.filter(i => !worn.has(i.uid)).sort((a, b) => rarityOf(a).power - rarityOf(b).power)[0];
-    p.inv = p.inv.filter(i => i !== spare);
-  }
-  if (!p.equip[g.slot]) p.equip[g.slot] = item.uid; // leerer Platz → gleich anlegen
+  const old = p.inv.find(i => i.uid === p.equip[g.slot]);
+  item.upgrade = !old || rar.power > rarityOf(old).power;
+  autoEquip(p);
   return item;
+}
+// Ausrüstung verwaltet sich selbst: pro Platz das stärkste Teil, dazu die letzten paar Funde
+function autoEquip(p) {
+  for (const slot of Object.keys(SLOTS)) {
+    const cur = p.inv.find(i => i.uid === p.equip[slot]);
+    const best = p.inv.filter(i => gearOf(i).slot === slot).sort((a, b) => rarityOf(b).power - rarityOf(a).power)[0];
+    if (best && (!cur || rarityOf(best).power > rarityOf(cur).power)) p.equip[slot] = best.uid;
+    if (!best) p.equip[slot] = null;
+  }
+  const worn = new Set(Object.values(p.equip));
+  p.inv = p.inv.filter((i, k) => worn.has(i.uid) || k < 5);
 }
 const gearOf = item => byId(GEAR, item.g);
 const rarityOf = item => byId(RARITY, item.r);
@@ -629,8 +637,9 @@ function startTrain(arg) {
   const [actId, course] = arg.split(':');
   const a = byId(ACTIVITIES, actId);
   if (doneToday(me(), a.id) >= a.perDay) return;
-  if (state.season.result) { toast('Die Jagd ist vorbei – starte unter „Saison“ die nächste!'); return; }
+  if (state.season.result) { toast('Die Jagd ist vorbei – starte unter „Mehr“ die nächste!'); return; }
   pending = { a, course, pr: a.pr && prOn && !prToday(me()), t0: performance.now() };
+  sheetOpen = false;
   render();
 }
 
@@ -746,6 +755,7 @@ function undo() {
       if (it.r === 'legendary') L.legendaries = Math.max(0, L.legendaries - 1);
       for (const s in p.equip) if (p.equip[s] === it.uid) p.equip[s] = null;
       p.inv = p.inv.filter(i => i !== it);
+      autoEquip(p);
     }
   }
   p.log.shift();
@@ -917,11 +927,14 @@ const actions = {
   introprev: () => { introPage = Math.max(0, introPage - 1); render(); window.scrollTo(0, 0); },
   introdone: () => { introPage = null; try { localStorage.setItem(INTRO_KEY, '1'); } catch (e) { /* ignorieren */ } render(); window.scrollTo(0, 0); },
   tab: t => { tab = t; render(); window.scrollTo(0, 0); },
+  sheet: () => { sheetOpen = true; render(); },
+  closesheet: () => { sheetOpen = false; render(); },
+  bet: () => { if (!state.pact) setPact(); else if (!state.stake) setStake(); else { tab = 'mehr'; render(); window.scrollTo(0, 0); } },
   player: id => { if (online()) return; state.current = id; duelOpen = false; save(); render(); },
 };
 document.addEventListener('click', e => {
-  const el = e.target.closest('[data-act]');
-  if (el && !el.disabled && actions[el.dataset.act]) actions[el.dataset.act](el.dataset.arg);
+  const el = e.target.closest('[data-act],[data-stop]');
+  if (el && !el.dataset.stop && !el.disabled && actions[el.dataset.act]) actions[el.dataset.act](el.dataset.arg);
 });
 
 // Belohnungs-Karten nacheinander zeigen (Wochenmonster, Schweinehund)
@@ -951,12 +964,9 @@ function renderHeader() {
       <b>${lead > 0 && weekDamage(p, wk) === lead ? '👑 ' : ''}${esc(p.name)}</b><small>${num(weekDamage(p, wk))} ⚡</small>
     </button>`).join('');
   renderSyncDot();
-  const p = me(), lvl = levelOf(p);
-  document.getElementById('resbar').innerHTML = `
-    <div class="res"><div class="res-top"><span>⭐ Level</span><b>${lvl}</b></div><div class="meter"><i style="width:${(p.xp - xpFor(lvl)) / (xpFor(lvl + 1) - xpFor(lvl)) * 100}%"></i></div></div>
-    <div class="res"><div class="res-top"><span>🔥 Combo</span><b>${fmtMult(comboMult(p))}</b></div><div class="meter combo"><i style="width:${comboDays(p) / 7 * 100}%"></i></div></div>
-    <div class="res"><div class="res-top"><span>⚡ Energie</span><b>${p.energy}/${ENERGY_MAX}</b></div><div class="meter energy"><i style="width:${p.energy / ENERGY_MAX * 100}%"></i></div></div>`;
-  for (const btn of document.querySelectorAll('#tabs button')) btn.classList.toggle('on', btn.dataset.arg === tab);
+  const p = me();
+  const shown = tab === 'sparring' ? 'held' : tab;
+  for (const btn of document.querySelectorAll('#tabs button')) btn.classList.toggle('on', btn.dataset.arg === shown);
   const badge = document.getElementById('spar-badge');
   if (badge) badge.textContent = p.incoming.length || '';
 }
@@ -1074,7 +1084,7 @@ function viewJagd() {
   const b = bossState(), mon = monsterOfWeek();
   const pct = b.hp / b.max;
   const res = state.season.result;
-  const wk = weekKey();
+  const sl = stakeLoser();
   return `
     ${incomingBanner(p)}
     <section class="card bosscard ${res ? (res.won ? 'won' : 'lost') : ''}">
@@ -1085,51 +1095,52 @@ function viewJagd() {
       </div>
       ${bossSvg(pct, state.season.chapter)}
       <div class="hpbar"><i style="width:${pct * 100}%"></i></div>
-      <small class="boss-info">${res ? (res.won ? '🎉 Besiegt! Unter „Saison“ startet die nächste Jagd.' : '😤 Er hat überlebt … Unter „Saison“ startet die Revanche.')
-        : `💤 Heilt sich um ${num(b.regen)} an jedem Tag, an dem keiner trainiert${b.lazy ? ` (schon ${b.lazy}× passiert)` : ''}.`}</small>
-      ${state.pact ? `<div class="pact">🎁 <b>Euer Pakt:</b> ${esc(state.pact)}</div>` : '<button class="btn small ghost pactbtn" data-act="pact">🎁 Pakt festlegen: Was gönnt ihr euch, wenn er fällt?</button>'}
-      ${state.stake ? stakeLine() : '<button class="btn small ghost pactbtn" data-act="stake">😬 Einsatz festlegen: Was zahlt der Faulere, wenn er überlebt?</button>'}
+      <small class="boss-info">${res ? (res.won ? '🎉 Besiegt! Unter „Mehr“ startet die nächste Jagd.' : '😤 Er hat überlebt … Unter „Mehr“ startet die Revanche.')
+        : `💤 Heilt sich um ${num(b.regen)} an jedem Tag, an dem keiner trainiert.`}</small>
+      <div class="bet" data-act="bet">
+        <span>🏆 <b>Sieg:</b> ${state.pact ? esc(state.pact) : '<i>festlegen …</i>'}</span>
+        <span>😬 <b>Niederlage:</b> ${state.stake ? `${sl ? esc(sl.payer.name) : 'der Faulere'} zahlt ${esc(state.stake)}` : '<i>festlegen …</i>'}</span>
+      </div>
+      <div class="monline ${mon.hp <= 0 ? 'down' : ''}">${mon.icon} <b>${mon.name}</b>
+        <span>${mon.hp <= 0 ? '✓ besiegt' : `Wochenmonster · noch ${num(mon.hp)}`}</span></div>
     </section>
 
-    <section class="card monster ${mon.hp <= 0 ? 'down' : ''}">
-      <span class="mon-icon">${mon.icon}</span>
-      <div class="bld-title"><b>${mon.name}</b><small>${mon.hp <= 0 ? '✓ besiegt – Beute kassiert!' : `Wochenmonster · ${mon.quote}`}</small>
-        <div class="hpbar small"><i style="width:${mon.hp / mon.max * 100}%"></i></div></div>
-      <span class="mon-hp">${num(mon.hp)}</span>
-    </section>
-
-    <section class="card team">
-      ${[p, other].map(x => `<div class="mate">${heroSvg(x, 'mini')}<div class="bld-title"><b>${esc(x === p ? 'Du' : x.name)}</b>
-        <small>${num(weekDamage(x, wk))} diese Woche${x.dmg[todayStr()] ? ' · ✓ heute' : ''}</small></div></div>`).join('')}
-      <button class="btn small" data-act="cheer" ${p.cheerSent === todayStr() ? 'disabled' : ''}>${p.cheerSent === todayStr() ? '📣 angefeuert ✓' : `📣 ${esc(other.name)} anfeuern`}</button>
-    </section>
     ${p.cheer ? `<section class="banner cheer">📣 <b>${esc(p.cheer.from)} feuert dich an!</b> Dein nächstes Training macht +25 % Schaden.</section>` : ''}
+    <button class="btn primary big train-btn" data-act="sheet" ${res ? 'disabled' : ''}>💪 Training eintragen</button>
 
-    <h2>Zuschlagen <small>jedes Training = ein Treffer</small></h2>
-    <div class="prtoggle ${prOn && !prToday(p) ? 'on' : ''} ${prToday(p) ? 'used' : ''}" data-act="pr">
-      <span class="pr-box">${prOn && !prToday(p) ? '✓' : ''}</span>
-      <span class="bld-title"><b>🏆 Neuer Rekord / Gewicht erhöht</b><small>${prToday(p) ? 'Heute schon einen Rekord eingetragen – stark!' : `Volltreffer ×${String(hasTalent(p, 'str', 50) ? 3 : PR_MULT).replace('.', ',')} für Milon oder freies Training (1× am Tag)`}</small></span>
+    <div class="today">
+      <span>Heute: <b>Du ${p.dmg[todayStr()] ? '✓' : '–'}</b> · <b>${esc(other.name)} ${other.dmg[todayStr()] ? '✓' : '–'}</b></span>
+      <button class="btn small" data-act="cheer" ${p.cheerSent === todayStr() ? 'disabled' : ''}>${p.cheerSent === todayStr() ? '📣 angefeuert ✓' : '📣 anfeuern'}</button>
     </div>
-    <div class="acts">${ACTIVITIES.map(a => actCard(p, a)).join('')}</div>
+
     <h2>Gesund gelebt <small>je +5 % Schaden heute</small></h2>
     <div class="health">${HEALTH.map(h => { const done = healthToday(p).includes(h.id);
-      return `<button class="chip-btn ${done ? 'done' : ''}" data-act="health" data-arg="${h.id}" ${done ? 'disabled' : ''}>${h.icon} ${h.name}${done ? ' ✓' : ''}</button>`; }).join('')}</div>
-    <p class="hint">Vertippt? Unter „Profil“ lässt sich der letzte Eintrag von heute zurücknehmen.</p>`;
+      return `<button class="chip-btn ${done ? 'done' : ''}" data-act="health" data-arg="${h.id}" ${done ? 'disabled' : ''}>${h.icon} ${h.name}${done ? ' ✓' : ''}</button>`; }).join('')}</div>`;
 }
 
-function actCard(p, a) {
+// Auswahlfenster: Was hast du trainiert?
+function trainSheet() {
+  const p = me();
+  return `
+    <div class="overlay sheet-wrap" data-act="closesheet">
+      <div class="ov-card sheet" data-stop="1">
+        <div class="sheet-head"><h2>Was hast du gemacht?</h2><button class="btn small" data-act="closesheet">✕</button></div>
+        <div class="prtoggle ${prOn && !prToday(p) ? 'on' : ''} ${prToday(p) ? 'used' : ''}" data-act="pr">
+          <span class="pr-box">${prOn && !prToday(p) ? '✓' : ''}</span>
+          <span class="bld-title"><b>🏆 Neuer Rekord / Gewicht erhöht</b><small>${prToday(p) ? 'Heute schon eingetragen – stark!' : 'Volltreffer für Milon oder freies Training, 1× am Tag'}</small></span>
+        </div>
+        ${ACTIVITIES.map(a => actRow(p, a)).join('')}
+      </div>
+    </div>`;
+}
+function actRow(p, a) {
   const done = doneToday(p, a.id), full = done >= a.perDay;
-  const preview = damageOf(p, a, { pr: a.pr && prOn && !prToday(p) }).dmg;
-  const head = `
-    <span class="act-icon">${a.icon}</span>
-    <span class="act-name">${a.name} <small>${done}/${a.perDay}</small></span>
-    <span class="act-unit">${a.unit}</span>
-    <span class="act-gain">${full ? 'für heute geschafft ✓' : `≈ ${num(preview)} Schaden`}</span>`;
+  const head = `<span class="act-icon">${a.icon}</span><span class="bld-title"><b>${a.name}</b><small>${full ? 'für heute geschafft ✓' : a.unit}</small></span>`;
   if (a.course) {
-    return `<div class="act wide course ${full ? 'is-done' : ''}">${head}
+    return `<div class="actrow course ${full ? 'is-done' : ''}">${head}
       ${full ? '' : `<div class="course-chips">${COURSES.map(c => `<button class="chip-btn" data-act="train" data-arg="kurs:${c.id}">${c.icon} ${c.name}</button>`).join('')}</div>`}</div>`;
   }
-  return `<button class="act ${a.id === 'milon' ? 'wide main' : ''}" data-act="train" data-arg="${a.id}" ${full ? 'disabled' : ''}>${head}</button>`;
+  return `<button class="actrow" data-act="train" data-arg="${a.id}" ${full ? 'disabled' : ''}>${head}<span class="go">›</span></button>`;
 }
 
 // Minispiel: der Balken pendelt, Mitte treffen = perfekter Schlag
@@ -1150,7 +1161,7 @@ function lootCard(it) {
   const g = gearOf(it), r = rarityOf(it);
   return `<div class="locker ${it.r}" style="--rar:${r.color}">
       <div class="locker-door"><span>SPIND</span></div>
-      <div class="loot"><span class="loot-icon">${g.icon}</span><b>${g.name}</b><small class="rar">${r.name}</small><small>${itemBonusText(it)}</small></div>
+      <div class="loot"><span class="loot-icon">${g.icon}</span><b>${g.name}</b><small class="rar">${r.name}</small><small>${itemBonusText(it)}</small>${it.upgrade ? '<small class="up">✓ angelegt</small>' : ''}</div>
     </div>`;
 }
 
@@ -1164,7 +1175,7 @@ function hitOverlay() {
         <div class="boss-mini">${bossSvg(b.hp / b.max, state.season.chapter, 'shake')}<div class="dmg-float ${h.crit || h.pr ? 'big' : ''}">−${num(h.dmg)}</div></div>
         <div class="hpbar"><i class="drain" style="--from:${h.bossBefore / b.max * 100}%;--to:${h.boss / b.max * 100}%"></i></div>
         <small>${num(h.boss)} / ${num(b.max)} Lebenspunkte übrig${h.monKilled ? ' · 👹 Wochenmonster besiegt!' : ''}</small>
-        <div class="mults">${h.mults.map(m => `<span class="mult ${m.f < 1 ? 'down' : ''}">${m.label} ${fmtMult(m.f)}</span>`).join('')}</div>
+        ${h.pr || h.crit ? `<div class="mults">${h.pr ? '<span class="mult">🏆 Rekord-Volltreffer!</span>' : ''}${h.crit ? '<span class="mult">💥 Kritisch!</span>' : ''}</div>` : ''}
         ${lootCard(h.item)}
         <button class="btn primary" data-act="closehit">Weiter 💪</button>
       </div>
@@ -1185,9 +1196,9 @@ function revealOverlay() {
 /* ---------- Held ---------- */
 
 function viewHeld() {
-  const p = me(), lvl = levelOf(p);
-  const worn = new Set(Object.values(p.equip));
+  const p = me(), lvl = levelOf(p), other = partnerOf(p);
   return `
+    ${incomingBanner(p)}
     <section class="card hero-card">
       ${heroSvg(p, 'big')}
       <div class="hero-side">
@@ -1195,38 +1206,19 @@ function viewHeld() {
         <small>${rankOf(p.life).icon} ${rankOf(p.life).name} · Level ${lvl}</small>
         <div class="meter"><i style="width:${(p.xp - xpFor(lvl)) / (xpFor(lvl + 1) - xpFor(lvl)) * 100}%"></i></div>
         ${Object.entries(STATS).map(([s, info]) => `<div class="stat"><span>${info.icon} ${info.name}</span><b>${num(p.stats[s])}</b></div>`).join('')}
-        <small>🎯 Krit-Chance ${Math.round(critChance(p) * 100)} %</small>
       </div>
     </section>
 
-    <h2>Talente <small>schalten sich durchs Training frei</small></h2>
-    <div class="talents">${TALENTS.map(t => {
-      const have = p.stats[t.stat], on = have >= t.at;
-      return `<div class="card talent ${on ? 'on' : ''}" style="--tc:${STATS[t.stat].color}">
-        <span class="t-icon">${t.icon}</span><b>${t.name}</b><small>${t.desc}</small>
-        ${on ? '<small class="t-ok">✓ aktiv</small>' : `<div class="meter"><i style="width:${Math.min(100, have / t.at * 100)}%"></i></div><small>${STATS[t.stat].icon} ${num(have)} / ${t.at}</small>`}
-      </div>`; }).join('')}</div>
+    <h2>Ausrüstung <small>bessere Teile legt dein Held selbst an</small></h2>
+    <div class="gear-slots">${Object.entries(SLOTS).map(([slot, label]) => {
+      const it = p.inv.find(i => i.uid === p.equip[slot]);
+      if (!it) return `<div class="card gslot empty"><span class="item-icon">❔</span><b>${label}</b><small>noch leer</small></div>`;
+      const g = gearOf(it), r = rarityOf(it);
+      return `<div class="card gslot" style="--rar:${r.color}"><span class="item-icon">${g.icon}</span><b>${g.name}</b><small class="rar">${r.name}</small></div>`;
+    }).join('')}</div>
 
-    <h2>Spind <small>${p.inv.length} / ${INV_MAX} Teile</small></h2>
-    ${Object.entries(SLOTS).map(([slot, label]) => {
-      const items = p.inv.filter(i => gearOf(i).slot === slot).sort((a, b) => rarityOf(b).power - rarityOf(a).power);
-      return `<h3 class="slot">${label}</h3>
-        <div class="items">${items.length ? items.map(i => itemCard(i, worn.has(i.uid))).join('') : '<p class="hint">Noch leer – jedes Training öffnet deinen Spind.</p>'}</div>`;
-    }).join('')}`;
-}
-function itemCard(it, on) {
-  const g = gearOf(it), r = rarityOf(it);
-  return `
-    <div class="card item ${on ? 'on' : ''}" style="--rar:${r.color}">
-      <span class="item-icon">${g.icon}</span>
-      <b>${g.name}</b>
-      <small class="rar">${r.name}</small>
-      <small>${itemBonusText(it)}</small>
-      <div class="item-btns">
-        <button class="btn small ${on ? 'primary' : ''}" data-act="equip" data-arg="${it.uid}">${on ? 'angelegt ✓' : 'anlegen'}</button>
-        ${on ? '' : `<button class="btn small ghost" data-act="scrap" data-arg="${it.uid}" aria-label="aussortieren">🗑️</button>`}
-      </div>
-    </div>`;
+    <button class="btn big spar-btn" data-act="tab" data-arg="sparring">🥊 Sparring gegen ${esc(other.name)}
+      <small>${p.incoming.length ? `${p.incoming.length} Herausforderung offen!` : `⚡ ${p.energy}/${ENERGY_MAX} Energie`}</small></button>`;
 }
 
 /* ---------- Sparring ---------- */
@@ -1245,6 +1237,7 @@ function viewSparring() {
   const fresh = freshReport && p.reports.find(r => r.id === freshReport);
   const L = p.life;
   return `
+    <button class="btn small ghost back-btn" data-act="tab" data-arg="held">← zurück zum Helden</button>
     ${fresh ? reportCard(fresh, true) : ''}
     ${incomingBanner(p)}
     <section class="card versus">
@@ -1469,7 +1462,7 @@ const INTRO = [
   { pic: () => '<div class="intro-icon">🎁</div>', title: 'Beute & dein Held',
     body: `<ul class="intro-list">
         <li>🔐 Nach jedem Training öffnet sich dein <b>Spind</b> mit zufälliger Ausrüstung – von gewöhnlich bis <b style="color:#f5b81c">legendär</b>.</li>
-        <li>🦾 Im Tab <b>Held</b> legst du sie an. Sie macht dich stärker.</li>
+        <li>🦾 Bessere Teile legt dein Held automatisch an – sie machen dich stärker.</li>
         <li>💪 Training steigert Kraft, Ausdauer und Geist und schaltet <b>Talente</b> frei.</li>
         <li>👹 Jede Woche taucht ein <b>Ausreden-Monster</b> auf – wer es erledigt, bekommt epische Beute.</li>
       </ul>` },
@@ -1480,7 +1473,7 @@ const INTRO = [
         <li>👑 Wer pro Woche mehr Schaden macht, bekommt die <b>MVP-Krone</b>.</li>
         <li>🎁 Optional: Legt einen <b>Pakt</b> fest – eure echte Belohnung, wenn er fällt.</li>
       </ul>
-      <p class="hint">Diese Anleitung findest du jederzeit wieder unter 🏅 Profil.</p>` },
+      <p class="hint">Diese Anleitung findest du jederzeit wieder unter ☰ Mehr.</p>` },
 ];
 
 function viewIntro() {
@@ -1498,7 +1491,7 @@ function viewIntro() {
     </section>`;
 }
 
-const VIEWS = { jagd: viewJagd, held: viewHeld, sparring: viewSparring, saison: viewSaison, profil: viewProfil };
+const VIEWS = { jagd: viewJagd, held: viewHeld, sparring: viewSparring, mehr: () => viewSaison() + viewProfil() };
 
 function render() {
   const setup = !game || joinId || setupStep;
@@ -1520,8 +1513,8 @@ function render() {
   nextReveal();
   renderHeader();
   document.getElementById('view').innerHTML = VIEWS[tab]();
-  document.getElementById('overlay').innerHTML = pending ? swingOverlay() : hitShow ? hitOverlay() : reveal ? revealOverlay() : '';
-  document.body.classList.toggle('ov-open', !!(pending || hitShow || reveal));
+  document.getElementById('overlay').innerHTML = pending ? swingOverlay() : hitShow ? hitOverlay() : reveal ? revealOverlay() : sheetOpen ? trainSheet() : '';
+  document.body.classList.toggle('ov-open', !!(pending || hitShow || reveal || sheetOpen));
 }
 
 const toastQueue = [];
