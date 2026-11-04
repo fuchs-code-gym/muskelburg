@@ -441,3 +441,12 @@ body.ov-open { overflow: hidden; }
 .intro-dots i { width: 8px; height: 8px; border-radius: 50%; background: var(--line); }
 .intro-dots i.on { background: var(--accent); width: 22px; border-radius: 4px; }
 .intro-nav { display: grid; grid-template-columns: 1fr 1fr; gap: 10px; }
+
+/* ---------- Einsatz ---------- */
+.stake { margin-top: 8px; padding: 9px 12px; border-radius: 12px; font-size: 14px;
+  background: color-mix(in srgb, var(--accent) 12%, var(--surface)); border: 1px solid color-mix(in srgb, var(--accent) 45%, var(--line)); }
+.stake small { display: block; margin-top: 2px; }
+.stake-pick { display: flex; flex-direction: column; gap: 6px; text-align: left; padding: 10px 12px; border-radius: 14px;
+  background: var(--surface-2); border: 1px solid var(--line); }
+.stake-pick .course-chips { margin: 2px 0 0; }
+.chip-btn.on { background: var(--accent); border-color: var(--accent); color: #fff; }

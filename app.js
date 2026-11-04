@@ -183,6 +183,7 @@ function normalizeMeta(s) {
   s.season = { no: 1, chapter: 1, start: todayStr(), result: null, ...s.season };
   s.hall = asList(s.hall);
   s.pact = s.pact || '';
+  s.stake = s.stake || '';
   s.resetId = s.resetId || rid();
   return s;
 }
@@ -282,7 +283,7 @@ const syncHandlers = {
   connection(ok) { connected = ok; renderSyncDot(); },
   meta(m) {
     if (!m) return;
-    Object.assign(state, normalizeMeta({ season: m.season, hall: m.hall, pact: m.pact, resetId: m.resetId }));
+    Object.assign(state, normalizeMeta({ season: m.season, hall: m.hall, pact: m.pact, stake: m.stake, resetId: m.resetId }));
     resolveAll();
     render();
   },
@@ -324,17 +325,53 @@ let introPage = null;
 try { if (!localStorage.getItem(INTRO_KEY)) introPage = 0; } catch (e) { introPage = 0; }
 if (joinId && game && game.id === joinId) { joinId = null; history.replaceState(null, '', location.pathname + location.search); }
 
+// Startcode: Nur wer ihn kennt, kann ein neues Spiel anlegen (Einladungslinks funktionieren ohne Code)
+const START_CODE_HASH = '19c1ed8cbe065bf3d09d5d278d0e83b8dbf53ec39bc3c45f1b27737fafc790ce';
+async function codeOk() {
+  const el = document.getElementById('setup-code');
+  const v = (el ? el.value : '').trim().toLowerCase();
+  if (!v) { toast('🔒 Bitte den Startcode eingeben'); return false; }
+  try {
+    const buf = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(v));
+    const hex = [...new Uint8Array(buf)].map(b => b.toString(16).padStart(2, '0')).join('');
+    if (hex === START_CODE_HASH) return true;
+  } catch (e) { /* ohne Verschlüsselung kein Start */ }
+  toast('🔒 Falscher Startcode');
+  return false;
+}
+
+// Einsatz: Fällt der Schweinehund nicht, gibt der mit weniger Schaden etwas aus
+const STAKES = ['🥙 Döner', '🥤 Protein-Shake', '☕ Kaffee', '🍦 Eis'];
+let setupStake = STAKES[0];
+function stakeLoser() {
+  const ps = Object.values(state.players);
+  if (ps.length < 2) return null;
+  const [top, low] = [...ps].sort((x, y) => seasonDamage(y) - seasonDamage(x));
+  if (seasonDamage(top) === seasonDamage(low)) return null;
+  return { payer: low, winner: top };
+}
+function setStake() {
+  const v = prompt('Euer Einsatz: Was gibt der mit weniger Schaden aus, wenn der Schweinehund überlebt? (z. B. 🥙 Döner, 🥤 Protein-Shake)', state.stake || '');
+  if (v === null) return;
+  state.stake = v.trim().slice(0, 60);
+  metaSet({ stake: state.stake });
+  save();
+  render();
+}
+
 async function createGame() {
   const name = setupName();
   if (!name) { toast('Gib zuerst deinen Namen ein'); return; }
+  if (!(await codeOk())) return;
   if (!window.MB_SYNC) { toast('Keine Verbindung – bitte mit Internet versuchen'); return; }
   state = freshState();
+  state.stake = setupStake;
   state.players.a.name = name;
   state.outbox = [];
   saveGame({ id: rid() + rid(), me: 'a' });
   state.current = 'a';
   reconcileOwn();
-  await window.MB_SYNC.createGame(game.id, clean({ season: state.season, hall: [], pact: '', resetId: state.resetId }));
+  await window.MB_SYNC.createGame(game.id, clean({ season: state.season, hall: [], pact: '', stake: state.stake, resetId: state.resetId }));
   save();
   startSync();
   setupStep = 'invite';
@@ -362,7 +399,10 @@ async function joinGame(pid) {
   toast(`🐷 Willkommen bei der Jagd, ${me().name}!`, true);
   render();
 }
-function playLocal() { saveGame({ local: true }); setupStep = null; render(); }
+async function playLocal() {
+  if (!(await codeOk())) return;
+  saveGame({ local: true }); state.stake = setupStake; save(); setupStep = null; render();
+}
 async function shareInvite() {
   const url = inviteLink();
   try { if (navigator.share) { await navigator.share({ title: 'Hantelhelden', text: 'Hilf mir, den inneren Schweinehund zu jagen! 🐷💪', url }); return; } } catch (e) { /* abgebrochen */ }
@@ -726,7 +766,9 @@ function newSeason() {
   const r = state.season.result;
   if (!r) return;
   const ch = state.season.chapter;
+  const sl = !r.won && state.stake ? stakeLoser() : null;
   state.hall.unshift({ no: state.season.no, chapter: ch, won: r.won, day: r.day, pact: state.pact,
+    paid: sl ? `${sl.payer.name} → ${sl.winner.name}: ${state.stake}` : '',
     mvp: [...Object.values(state.players)].sort((x, y) => seasonDamage(y) - seasonDamage(x))[0].name });
   const carry = {};
   for (const [id, p] of Object.entries(state.players)) carry[id] = p.dmg[todayStr()] || 0;
@@ -857,7 +899,8 @@ function sendDuel() {
 
 const actions = {
   train: startTrain, strike: () => strike(false), skip: () => strike(true), health, cheer, equip, scrap, undo, rename, reset,
-  newSeason, pact: setPact,
+  newSeason, pact: setPact, stake: setStake,
+  pickstake: s => { if (s === 'eigen') { const v = prompt('Euer Einsatz (z. B. 🍕 Pizza):', ''); if (!v || !v.trim()) return; setupStake = v.trim().slice(0, 60); } else setupStake = s; render(); },
   pr: () => { prOn = !prOn; render(); },
   closehit: () => { hitShow = null; nextReveal(); render(); },
   closereveal: () => { reveal = null; nextReveal(); render(); },
@@ -1045,6 +1088,7 @@ function viewJagd() {
       <small class="boss-info">${res ? (res.won ? '🎉 Besiegt! Unter „Saison“ startet die nächste Jagd.' : '😤 Er hat überlebt … Unter „Saison“ startet die Revanche.')
         : `💤 Heilt sich um ${num(b.regen)} an jedem Tag, an dem keiner trainiert${b.lazy ? ` (schon ${b.lazy}× passiert)` : ''}.`}</small>
       ${state.pact ? `<div class="pact">🎁 <b>Euer Pakt:</b> ${esc(state.pact)}</div>` : '<button class="btn small ghost pactbtn" data-act="pact">🎁 Pakt festlegen: Was gönnt ihr euch, wenn er fällt?</button>'}
+      ${state.stake ? stakeLine() : '<button class="btn small ghost pactbtn" data-act="stake">😬 Einsatz festlegen: Was zahlt der Faulere, wenn er überlebt?</button>'}
     </section>
 
     <section class="card monster ${mon.hp <= 0 ? 'down' : ''}">
@@ -1264,6 +1308,12 @@ function reportCard(r, animate) {
     </section>`;
 }
 
+function stakeLine() {
+  const sl = stakeLoser();
+  return `<div class="stake">${esc(state.stake)} <b>Einsatz:</b> Überlebt er, gibt der mit weniger Schaden aus.
+    ${sl ? `<small>Stand jetzt zahlt: <b>${esc(sl.payer.name)}</b> 😬</small>` : ''}</div>`;
+}
+
 /* ---------- Saison ---------- */
 
 function viewSaison() {
@@ -1276,13 +1326,15 @@ function viewSaison() {
     ${res ? `<section class="card season-over ${res.won ? 'won' : 'lost'}">
       <div class="goal-head"><span class="big-icon">${res.won ? '🏆' : '😤'}</span>
         <div class="bld-title"><b>${res.won ? `Kapitel ${state.season.chapter} geschafft!` : 'Der Schweinehund hat überlebt'}</b>
-          <small>${res.won ? (state.pact ? `Jetzt ist euer Pakt fällig: ${esc(state.pact)} 🎉` : 'Gönnt euch was!') : 'Kein Problem – Revanche!'}</small></div></div>
+          <small>${res.won ? (state.pact ? `Jetzt ist euer Pakt fällig: ${esc(state.pact)} 🎉` : 'Gönnt euch was!')
+            : (() => { const sl = state.stake && stakeLoser(); return sl ? `Einsatz fällig: <b>${esc(sl.payer.name)}</b> gibt <b>${esc(sl.winner.name)}</b> ${esc(state.stake)} aus! Dann Revanche.` : 'Kein Problem – Revanche!'; })()}</small></div></div>
       <button class="btn primary" data-act="newSeason">${res.won ? `Kapitel ${state.season.chapter + 1} starten` : 'Revanche starten'}</button></section>` : ''}
     <h2>Jagd ${state.season.no} · Kapitel ${state.season.chapter} <small>${res ? 'beendet' : `noch ${daysLeft()} Tage`}</small></h2>
     <div class="card list">
       <div class="row"><span>🐷 Schweinehund</span><b>${num(b.hp)} / ${num(b.max)}</b></div>
       <div class="row"><span>💤 Faule Tage (er heilt sich)</span><b>${b.lazy}</b></div>
       <div class="row"><span>🎁 Pakt: ${state.pact ? esc(state.pact) : '–'}</span><button class="btn small ghost" data-act="pact">ändern</button></div>
+      <div class="row"><span>😬 Einsatz bei Niederlage: ${state.stake ? esc(state.stake) : '–'}</span><button class="btn small ghost" data-act="stake">ändern</button></div>
     </div>
 
     <h2>Schaden in dieser Jagd</h2>
@@ -1301,7 +1353,7 @@ function viewSaison() {
 
     <h2>🏛️ Ruhmeshalle</h2>
     <div class="card list">${state.hall.length ? state.hall.map(h => `
-      <div class="row"><span><b>${h.won ? '🏆' : '😤'} Jagd ${h.no} · Kapitel ${h.chapter}</b><small>${h.won ? 'Schweinehund besiegt' : 'entkommen'} · MVP ${esc(h.mvp)}${h.pact ? ` · Pakt: ${esc(h.pact)}` : ''}</small></span>
+      <div class="row"><span><b>${h.won ? '🏆' : '😤'} Jagd ${h.no} · Kapitel ${h.chapter}</b><small>${h.won ? 'Schweinehund besiegt' : 'entkommen'} · MVP ${esc(h.mvp)}${h.pact ? ` · Pakt: ${esc(h.pact)}` : ''}${h.paid ? ` · ${esc(h.paid)}` : ''}</small></span>
         <small>${new Date(h.day + 'T12:00').toLocaleDateString('de-DE')}</small></div>`).join('')
       : '<div class="row muted">Noch leer – erlegt den ersten Schweinehund!</div>'}</div>`;
 }
@@ -1373,7 +1425,8 @@ function viewSetup() {
     }
     const players = joinInfo.players || {};
     return `<section class="card setup">${bossSvg(1, 1)}<h2>Hilf bei der Jagd!</h2>
-      <p>Dein Trainingspartner jagt den inneren Schweinehund – und braucht dich.</p>${nameField}
+      <p>Dein Trainingspartner jagt den inneren Schweinehund – und braucht dich.</p>
+      ${joinInfo.meta.stake ? `<div class="stake">${esc(joinInfo.meta.stake)} <b>Einsatz:</b> Überlebt er, gibt der mit weniger Schaden aus.</div>` : ''}${nameField}
       ${['a', 'b'].map(pid => { const taken = players[pid] && players[pid].updatedAt;
         return `<button class="btn ${taken ? '' : 'primary'}" data-act="join" data-arg="${pid}">${taken ? `Ich bin ${esc(players[pid].name)} (anderes Gerät)` : 'Mitmachen'}</button>`; }).join('')}
       <p class="hint">„Anderes Gerät“ nur, wenn du schon mitspielst und das Gerät wechselst.</p></section>`;
@@ -1382,7 +1435,12 @@ function viewSetup() {
       ${bossSvg(1, 1)}
       <h2>Jagt den inneren Schweinehund!</h2>
       <p>Er liegt auf dem Sofa und lacht euch aus. Jedes Training ist ein Treffer – und an jedem faulen Tag heilt er sich. Schafft ihr ihn in 6 Wochen?</p>
+      <div class="stake-pick"><b>😬 Euer Einsatz</b>
+        <small>Überlebt der Schweinehund, gibt der mit weniger Schaden dem anderen aus:</small>
+        <div class="course-chips">${[...new Set([...STAKES, setupStake])].map(s => `<button class="chip-btn ${s === setupStake ? 'on' : ''}" data-act="pickstake" data-arg="${esc(s)}">${esc(s)}</button>`).join('')}
+          <button class="chip-btn" data-act="pickstake" data-arg="eigen">✏️ Eigener</button></div></div>
       ${nameField}
+      <input id="setup-code" class="field" maxlength="40" placeholder="🔒 Startcode" autocomplete="off" autocapitalize="none">
       <button class="btn primary big" data-act="create">Jagd starten</button>
       <p class="hint">Du hast einen Einladungslink bekommen? Dann öffne einfach den Link.</p>
       <button class="btn ghost" data-act="local">Nur auf diesem Gerät ausprobieren</button>
@@ -1399,6 +1457,7 @@ const INTRO = [
         <li>🎯 <b>Ziel:</b> ${BOSS_HP.toLocaleString('de-DE')} Lebenspunkte in <b>${SEASON_DAYS / 7} Wochen</b> runterprügeln.</li>
         <li>😴 An jedem Tag, an dem <b>keiner</b> trainiert, heilt er sich um ${BOSS_REGEN}.</li>
         <li>🏆 Geschafft? Dann kommt Kapitel 2 – mit einem stärkeren Schweinehund.</li>
+        <li>😬 Nicht geschafft? Dann gibt der mit weniger Schaden den <b>Einsatz</b> aus – z. B. einen 🥙 Döner.</li>
       </ul>` },
   { pic: () => '<div class="intro-icon">👊</div>', title: 'Jedes Training ist ein Treffer',
     body: `<ol class="intro-steps">
@@ -1450,11 +1509,10 @@ function render() {
     return;
   }
   if (setup) {
-    const typed = document.getElementById('setup-name');
-    const name = typed ? typed.value : '';
+    const keep = {};
+    for (const id of ['setup-name', 'setup-code']) { const el = document.getElementById(id); if (el) keep[id] = el.value; }
     document.getElementById('view').innerHTML = viewSetup();
-    const field = document.getElementById('setup-name');
-    if (field) field.value = name;
+    for (const id in keep) { const el = document.getElementById(id); if (el) el.value = keep[id]; }
     document.getElementById('overlay').innerHTML = '';
     return;
   }
