@@ -8,7 +8,7 @@
   <link rel="manifest" href="manifest.webmanifest">
   <link rel="icon" href="icon.svg" type="image/svg+xml">
   <link rel="apple-touch-icon" href="icon-192.png">
-  <link rel="stylesheet" href="style.css?v=6">
+  <link rel="stylesheet" href="style.css?v=7">
 </head>
 <body>
   <header class="top">
@@ -20,16 +20,17 @@
   <main id="view"></main>
 
   <nav class="tabs" id="tabs">
-    <button data-act="tab" data-arg="training"><span>💪</span>Training</button>
+    <button data-act="tab" data-arg="jagd"><span>🐷</span>Jagd</button>
     <button data-act="tab" data-arg="held"><span>🦾</span>Held</button>
-    <button data-act="tab" data-arg="arena"><span>⚔️<i id="arena-badge" class="tab-badge"></i></span>Arena</button>
-    <button data-act="tab" data-arg="rang"><span>🏆</span>Rangliste</button>
+    <button data-act="tab" data-arg="sparring"><span>🥊<i id="spar-badge" class="tab-badge"></i></span>Sparring</button>
+    <button data-act="tab" data-arg="saison"><span>🏆</span>Saison</button>
     <button data-act="tab" data-arg="profil"><span>🏅</span>Profil</button>
   </nav>
 
+  <div id="overlay"></div>
   <div id="toast" role="status" aria-live="polite"></div>
 
-  <script src="app.js?v=6"></script>
+  <script src="app.js?v=7"></script>
   <script type="module" src="sync.js"></script>
 </body>
 </html>
