@@ -24,7 +24,7 @@
     .lead { color: var(--muted); margin: 0 0 6px; font-size: 16px; }
     .stage { background: radial-gradient(circle at 50% 40%, #262b36, var(--card) 70%); border: 1px solid var(--line);
              border-radius: 22px; padding: 12px 14px 12px; margin: 12px 0; position: relative; overflow: hidden; }
-    .stage svg { width: 100%; max-width: 210px; display: block; margin: 0 auto; }
+    .stage svg { width: 100%; max-width: 210px; max-height: 22vh; display: block; margin: 0 auto; }
     .o { stroke: #15171c; stroke-width: 2.4; stroke-linejoin: round; }
     .hit { position: absolute; right: 18px; top: 22px; font-weight: 900; font-size: 26px; color: var(--volt);
            transform: rotate(8deg); text-shadow: 0 2px 0 #000; }
@@ -100,5 +100,17 @@
     <a class="cta" href="./">Jagd starten 💪</a>
     <p class="foot">Kostenlos · läuft im Browser · fuchs-code-gym.github.io/muskelburg</p>
   </main>
+  <script>
+    // Alles auf einen Bildschirm: bei kleinen Handys die ganze Seite etwas verkleinern
+    function fit() {
+      const p = document.querySelector('.poster');
+      p.style.zoom = 1;
+      const s = Math.min(1, window.innerHeight / p.offsetHeight);
+      if (s < 1) p.style.zoom = Math.max(0.7, s - 0.005);
+    }
+    window.addEventListener('resize', fit);
+    window.addEventListener('load', fit);
+    fit();
+  </script>
 </body>
 </html>
