@@ -396,6 +396,7 @@ async function joinGame(pid) {
   const existing = snap && snap.players && snap.players[pid] && snap.players[pid].updatedAt ? snap.players[pid] : null;
   const name = setupName();
   if (!name && !existing) { toast('Gib zuerst deinen Namen ein'); return; }
+  if (existing && !confirm(`Bist du wirklich ${existing.name}? Dieses Gerät übernimmt dann den Helden von ${existing.name}.\n\nNeu dabei? Dann „Abbrechen“ und „Mitmachen“ wählen.`)) return;
   saveGame({ id: joinId, me: pid });
   joinId = null;
   history.replaceState(null, '', location.pathname + location.search);
@@ -1439,9 +1440,10 @@ function viewSetup() {
     return `<section class="card setup">${bossSvg(1, 1)}<h2>Hilf bei der Jagd!</h2>
       <p>${taken.map(pid => esc(players[pid].name)).join(' und ')} ${taken.length > 1 ? 'jagen den inneren Schweinehund – und brauchen dich.' : 'jagt den inneren Schweinehund – und braucht dich.'}</p>
       ${joinInfo.meta.stake ? `<div class="stake">${esc(joinInfo.meta.stake)} <b>Einsatz:</b> Überlebt er, gibt der mit dem wenigsten Schaden aus.</div>` : ''}
-      ${free ? `${nameField}<button class="btn primary" data-act="join" data-arg="${free}">Mitmachen</button>` : '<p class="hint">Das Team ist voll (3 Leute).</p>'}
-      ${taken.map(pid => `<button class="btn" data-act="join" data-arg="${pid}">Ich bin ${esc(players[pid].name)} (anderes Gerät)</button>`).join('')}
-      <p class="hint">„Anderes Gerät“ nur, wenn du schon mitspielst und das Gerät wechselst.</p></section>`;
+      <div class="slots">${PIDS.map((pid, i) => `<span class="${taken.includes(pid) ? 'on' : ''}">Platz ${i + 1}: <b>${taken.includes(pid) ? esc(players[pid].name) : 'frei'}</b></span>`).join('')}</div>
+      ${free ? `${nameField}<button class="btn primary big" data-act="join" data-arg="${free}">Neu mitmachen</button>` : '<p class="hint">Das Team ist voll (3 Leute).</p>'}
+      ${taken.length ? `<p class="hint">Du spielst schon mit und wechselst nur das Gerät?</p>
+        ${taken.map(pid => `<button class="btn small ghost" data-act="join" data-arg="${pid}">Ich bin ${esc(players[pid].name)}</button>`).join('')}` : ''}</section>`;
   }
   return `<section class="card setup">
       ${bossSvg(1, 1)}

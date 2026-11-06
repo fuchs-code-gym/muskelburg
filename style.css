@@ -491,3 +491,6 @@ body.ov-open { overflow: hidden; }
 .opp-pick { align-items: center; margin: 0 0 10px; }
 .opp-pick small { color: var(--muted); font-weight: 700; margin-right: 2px; }
 .players:has(.pchip:nth-child(3)) .pchip { flex-direction: column; align-items: flex-start; gap: 0; padding: 6px 10px; }
+.slots { display: flex; flex-direction: column; gap: 4px; font-size: 14px; text-align: left; background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; }
+.slots span { color: var(--muted); }
+.slots span.on { color: var(--text); }
