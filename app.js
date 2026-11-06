@@ -13,14 +13,18 @@ const STATS = {
 };
 const BASE_STAT = 10;
 
-// Training: type = Schadensart, base = Grundschaden, gives = Wertepunkte für den Helden
+// Training in Zeitblöcken: type = Schadensart, base = Grundschaden je Block, gives = Wertepunkte je Block
 const ACTIVITIES = [
-  { id: 'milon',  name: 'Milon-Zirkel',       unit: '1 Durchgang · ca. 10 Min.',        icon: '🔁', type: 'str',  base: 100, gives: { str: 3, end: 1 }, perDay: 6, pr: true },
-  { id: 'frei',   name: 'Freies Training',    unit: '15 Min. Geräte oder Hanteln',      icon: '🏋️', type: 'str',  base: 80,  gives: { str: 2, end: 1 }, perDay: 4, pr: true },
-  { id: 'cardio', name: 'Rad / Crosstrainer', unit: '10 Min.',                          icon: '🚴', type: 'end',  base: 50,  gives: { end: 2 },         perDay: 6 },
-  { id: 'kurs',   name: 'Kurs',               unit: 'Yoga, Pilates, Rücken … · 1× am Tag', icon: '🧘', type: 'mind', base: 120, gives: { mind: 4, end: 1 }, perDay: 1, course: true },
-  { id: 'dehnen', name: 'Dehnen & Mobility',  unit: '10 Min. · bis 2× am Tag',           icon: '🤸', type: 'mind', base: 50,  gives: { mind: 2 },        perDay: 2 },
+  { id: 'kraft', name: 'Kraft-Block', unit: '5 Min. am Limit – Geräte, Hanteln, Milon …', icon: '💪', type: 'str', step: 5, mins: [5, 10, 15, 20, 30], maxMin: 60, base: 45, gives: { str: 2 }, pr: true },
+  { id: 'puls', name: 'Puls-Block', unit: '10 Min. Ausdauer – Rad, Crosstrainer, Rudern …', icon: '🫀', type: 'end', step: 10, mins: [10, 20, 30, 45], maxMin: 90, base: 50, gives: { end: 2 } },
+  { id: 'ausgleich', name: 'Ausgleich', unit: '10 Min. Yoga, Kurs, Dehnen, Mobility', icon: '🧘', type: 'mind', step: 10, mins: [10, 20, 30, 60], maxMin: 90, base: 45, gives: { mind: 2 } },
 ];
+// alte Einträge im Verlauf weiter anzeigen können
+const OLD_ACTIVITIES = [
+  { id: 'milon', name: 'Milon-Zirkel', icon: '🔁' }, { id: 'frei', name: 'Freies Training', icon: '🏋️' },
+  { id: 'cardio', name: 'Rad / Crosstrainer', icon: '🚴' }, { id: 'kurs', name: 'Kurs', icon: '🧘' }, { id: 'dehnen', name: 'Dehnen & Mobility', icon: '🤸' },
+];
+const actOf = id => ACTIVITIES.find(a => a.id === id) || OLD_ACTIVITIES.find(a => a.id === id) || { name: 'Training', icon: '💪' };
 const COURSES = [
   { id: 'yoga', name: 'Yoga', icon: '🧘' }, { id: 'pilates', name: 'Pilates', icon: '🤸' },
   { id: 'ruecken', name: 'Rücken', icon: '🦴' }, { id: 'spinning', name: 'Spinning', icon: '🚲' },
@@ -39,7 +43,8 @@ const PR_MULT = 2.5;          // Neuer Rekord (Gewicht erhöht) = Volltreffer, 1
 const CRIT_MULT = 1.5;        // kritischer Treffer (Chance wächst mit Geist)
 const CHEER_MULT = 1.25;      // vom Partner angefeuert
 const COMEBACK_MULT = 1.25;   // wer in der Saison deutlich weniger Schaden hat
-const DAY_FALLOFF = [1, 1, 1, 0.6, 0.6, 0.3]; // 1.–3. Einheit am Tag voll, danach weniger – Regeneration zählt
+// Erholung zählt: die ersten 60 Min. am Tag voll, bis 90 Min. 60 %, danach 30 %
+const falloffAt = m => m < 60 ? 1 : m < 90 ? 0.6 : 0.3;
 
 // Saison: der Schweinehund
 const SEASON_DAYS = 42;
@@ -155,7 +160,7 @@ function newLife() {
 function newHero(name) {
   return {
     name, stats: { str: BASE_STAT, end: BASE_STAT, mind: BASE_STAT }, xp: 0, energy: ENERGY_START,
-    counts: { milon: 0, frei: 0, cardio: 0, kurs: 0, dehnen: 0 },
+    counts: { kraft: 0, puls: 0, ausgleich: 0 },
     dmg: {},              // Datum → Schaden an diesem Tag
     inv: [], equip: { weapon: null, armor: null, trinket: null }, tactics: ['C', 'A', 'B'],
     life: newLife(), log: [], reports: [], outgoing: [], incoming: [],
@@ -456,8 +461,7 @@ function idOf(p) { return Object.keys(state.players).find(id => state.players[id
 function weekKey(d = new Date()) { const x = new Date(d); x.setDate(x.getDate() - (x.getDay() + 6) % 7); return todayStr(x); }
 const hasTalent = (p, stat, at) => p.stats[stat] >= at;
 
-function doneToday(p, id) { return p.log.filter(e => e.kind === 'train' && e.id === id && e.day === todayStr()).length; }
-function sessionsToday(p) { return p.log.filter(e => e.kind === 'train' && e.day === todayStr()).length; }
+function minutesToday(p, id) { return sum(p.log.filter(e => e.kind === 'train' && e.day === todayStr() && (!id || e.id === id)).map(e => e.min || 10)); }
 function healthToday(p) { return p.log.filter(e => e.kind === 'health' && e.day === todayStr()).map(e => e.id); }
 function prToday(p) { return p.log.some(e => e.kind === 'train' && e.pr && e.day === todayStr()); }
 
@@ -623,22 +627,27 @@ function critChance(p) {
 
 /* ---------- Schaden eines Trainings ---------- */
 
-function damageOf(p, a, { pr = false, timing = 1, crit = false } = {}) {
+function damageOf(p, a, { pr = false, timing = 1, crit = false, min = a.step } = {}) {
   const mults = [];
-  let dmg = a.base * (1 + p.stats[a.type] / 100);
+  const n = Math.max(1, Math.round(min / a.step)); // Anzahl Blöcke
+  let dmg = n * a.base * (1 + p.stats[a.type] / 100);
   const add = (label, f) => { if (f !== 1) { mults.push({ label, f }); dmg *= f; } };
   add('Ausrüstung', 1 + gearBonus(p, a.type));
   if (a.type === 'str' && hasTalent(p, 'str', 25)) add('Wuchtschlag', 1.15);
   if (a.type === 'end' && hasTalent(p, 'end', 50)) add('Marathon', 1.25);
   add('Combo', comboMult(p, true));
-  if (pr) add('Neuer Rekord', hasTalent(p, 'str', 50) ? 3 : PR_MULT);
+  // Rekord = ein Block zählt als Volltreffer
+  if (pr) add('Neuer Rekord', 1 + ((hasTalent(p, 'str', 50) ? 3 : PR_MULT) - 1) / n);
   if (crit) add('Kritisch', CRIT_MULT);
   add('Schlag', timing);
   if (p.cheer) add('Angefeuert', CHEER_MULT);
   const best = Math.max(0, ...othersOf(p).map(seasonDamage));
   if (best > 500 && seasonDamage(p) < 0.6 * best) add('Comeback', COMEBACK_MULT);
   add('Gesund gelebt', 1 + HEALTH_BONUS * healthToday(p).length);
-  add('Erholung nötig', DAY_FALLOFF[Math.min(sessionsToday(p), DAY_FALLOFF.length - 1)]);
+  const done = minutesToday(p);
+  let fall = 0;
+  for (let m = 0; m < min; m += 5) fall += falloffAt(done + m);
+  add('Erholung nötig', fall / Math.ceil(min / 5));
   return { dmg: Math.round(dmg), mults };
 }
 
@@ -648,11 +657,11 @@ function damageOf(p, a, { pr = false, timing = 1, crit = false } = {}) {
 
 // 1. Training antippen → Minispiel
 function startTrain(arg) {
-  const [actId, course] = arg.split(':');
-  const a = byId(ACTIVITIES, actId);
-  if (doneToday(me(), a.id) >= a.perDay) return;
+  const [actId, m] = arg.split(':');
+  const a = byId(ACTIVITIES, actId), min = Number(m) || a.step;
+  if (minutesToday(me(), a.id) + min > a.maxMin) return;
   if (state.season.result) { toast('Die Jagd ist vorbei – starte unter „Mehr“ die nächste!'); return; }
-  pending = { a, course, pr: a.pr && prOn && !prToday(me()), t0: performance.now() };
+  pending = { a, min, pr: a.pr && prOn && !prToday(me()), t0: performance.now() };
   sheetOpen = false;
   render();
 }
@@ -677,20 +686,21 @@ function strike(skip) {
 // 3. Eintragen, Schaden, Beute
 function doTrain(pend, timing, grade) {
   const p = me();
-  const { a, course, pr } = pend;
+  const { a, min, pr } = pend;
+  const n = Math.max(1, Math.round(min / a.step));
   pending = null;
   const L = p.life;
   const before = { level: levelOf(p), rank: rankOf(L), badges: earnedBadges(L).length, boss: bossState().hp, mon: monsterOfWeek().hp, stats: { ...p.stats } };
   const crit = Math.random() < critChance(p);
-  const { dmg, mults } = damageOf(p, a, { pr, timing, crit });
+  const { dmg, mults } = damageOf(p, a, { pr, timing, crit, min });
   const firstToday = !p.dmg[todayStr()];
   p.dmg[todayStr()] = (p.dmg[todayStr()] || 0) + dmg;
   const got = {};
-  for (const s in a.gives) { got[s] = a.gives[s]; p.stats[s] += got[s]; }
+  for (const s in a.gives) { got[s] = a.gives[s] * n; p.stats[s] += got[s]; }
   p.xp += sum(got);
   const energy = Math.min(1, ENERGY_MAX - p.energy);
   p.energy += energy;
-  p.counts[a.id]++;
+  p.counts[a.id] = (p.counts[a.id] || 0) + 1;
   L.sessions++;
   if (firstToday) L.days++;
   if (pr) L.prs++;
@@ -698,7 +708,7 @@ function doTrain(pend, timing, grade) {
   const usedCheer = !!p.cheer;
   p.cheer = null;
   const item = dropLoot(p, 0);
-  p.log.unshift({ t: Date.now(), day: todayStr(), kind: 'train', id: a.id, course, dmg, got, energy, pr, crit, firstToday,
+  p.log.unshift({ t: Date.now(), day: todayStr(), kind: 'train', id: a.id, min, dmg, got, energy, pr, crit, firstToday,
     usedCheer, item: item.uid, mults });
   p.log.length = Math.min(p.log.length, 200);
   resolveAll();
@@ -1143,20 +1153,17 @@ function trainSheet() {
         <div class="sheet-head"><h2>Was hast du gemacht?</h2><button class="btn small" data-act="closesheet">✕</button></div>
         <div class="prtoggle ${prOn && !prToday(p) ? 'on' : ''} ${prToday(p) ? 'used' : ''}" data-act="pr">
           <span class="pr-box">${prOn && !prToday(p) ? '✓' : ''}</span>
-          <span class="bld-title"><b>🏆 Neuer Rekord / Gewicht erhöht</b><small>${prToday(p) ? 'Heute schon eingetragen – stark!' : 'Volltreffer für Milon oder freies Training, 1× am Tag'}</small></span>
+          <span class="bld-title"><b>🏆 Neuer Rekord / Gewicht erhöht</b><small>${prToday(p) ? 'Heute schon eingetragen – stark!' : 'Gilt für den nächsten Kraft-Block: ein Block zählt ×2,5 – 1× am Tag'}</small></span>
         </div>
         ${ACTIVITIES.map(a => actRow(p, a)).join('')}
       </div>
     </div>`;
 }
 function actRow(p, a) {
-  const done = doneToday(p, a.id), full = done >= a.perDay;
-  const head = `<span class="act-icon">${a.icon}</span><span class="bld-title"><b>${a.name}</b><small>${full ? 'für heute geschafft ✓' : a.unit}</small></span>`;
-  if (a.course) {
-    return `<div class="actrow course ${full ? 'is-done' : ''}">${head}
-      ${full ? '' : `<div class="course-chips">${COURSES.map(c => `<button class="chip-btn" data-act="train" data-arg="kurs:${c.id}">${c.icon} ${c.name}</button>`).join('')}</div>`}</div>`;
-  }
-  return `<button class="actrow" data-act="train" data-arg="${a.id}" ${full ? 'disabled' : ''}>${head}<span class="go">›</span></button>`;
+  const done = minutesToday(p, a.id), left = a.maxMin - done;
+  const head = `<span class="act-icon">${a.icon}</span><span class="bld-title"><b>${a.name}</b><small>${left < a.step ? 'für heute geschafft ✓' : a.unit}${done ? ` · heute ${done} Min.` : ''}</small></span>`;
+  return `<div class="actrow course ${left < a.step ? 'is-done' : ''}">${head}
+    ${left < a.step ? '' : `<div class="course-chips">${a.mins.filter(m => m <= left).map(m => `<button class="chip-btn" data-act="train" data-arg="${a.id}:${m}">${m} Min.</button>`).join('')}</div>`}</div>`;
 }
 
 // Minispiel: der Balken pendelt, Mitte treffen = perfekter Schlag
@@ -1164,7 +1171,7 @@ function swingOverlay() {
   return `
     <div class="overlay">
       <div class="ov-card swing">
-        <div class="eyebrow">${pending.a.icon} ${pending.a.name}${pending.pr ? ' · 🏆 Rekord!' : ''}</div>
+        <div class="eyebrow">${pending.a.icon} ${pending.a.name} · ${pending.min} Min.${pending.pr ? ' · 🏆 Rekord!' : ''}</div>
         <h2>Tipp, wenn der Balken in der Mitte ist!</h2>
         <div class="swingbar"><span class="zone"></span><i class="marker" style="animation-duration:${SWING_MS}ms"></i></div>
         <button class="btn primary big punch" data-act="strike">👊 ZUSCHLAGEN</button>
@@ -1377,8 +1384,8 @@ function viewProfil() {
   const earned = new Set(earnedBadges(L));
   const line = e => {
     if (e.kind === 'train') {
-      const a = byId(ACTIVITIES, e.id), c = e.course && byId(COURSES, e.course);
-      return `${c ? c.icon : a.icon} ${c ? `Kurs: ${c.name}` : a.name} <span class="muted">−${num(e.dmg)}${e.pr ? ' 🏆' : ''}${e.crit ? ' 🎯' : ''}</span>`;
+      const a = actOf(e.id), c = e.course && byId(COURSES, e.course);
+      return `${c ? c.icon : a.icon} ${c ? `Kurs: ${c.name}` : a.name}${e.min ? ` · ${e.min} Min.` : ''} <span class="muted">−${num(e.dmg)}${e.pr ? ' 🏆' : ''}${e.crit ? ' 🎯' : ''}</span>`;
     }
     const h = byId(HEALTH, e.id);
     return `${h.icon} ${h.name}`;
@@ -1475,7 +1482,7 @@ const INTRO = [
       </ul>` },
   { pic: () => '<div class="intro-icon">👊</div>', title: 'Jedes Training ist ein Treffer',
     body: `<ol class="intro-steps">
-        <li>Nach dem Gym im Tab <b>🐷 Jagd</b> antippen, was du gemacht hast: Milon, Freies Training, Rad/Crosstrainer, Kurs oder Dehnen.</li>
+        <li>Nach dem Gym im Tab <b>🐷 Jagd</b> antippen, was du gemacht hast: 💪 <b>Kraft-Block</b> (5 Min. am Limit), 🫀 <b>Puls-Block</b> (10 Min. Ausdauer) oder 🧘 <b>Ausgleich</b> (Yoga, Kurs, Dehnen) – und wie lange.</li>
         <li><b>Zuschlagen:</b> Ein Balken pendelt – triff die Mitte für bis zu +30 % Schaden. Oder ohne Minispiel eintragen.</li>
         <li>Der Schweinehund steckt ein, seine Lebensleiste sinkt.</li>
       </ol>

@@ -494,3 +494,5 @@ body.ov-open { overflow: hidden; }
 .slots { display: flex; flex-direction: column; gap: 4px; font-size: 14px; text-align: left; background: var(--surface-2); border: 1px solid var(--line); border-radius: 12px; padding: 8px 12px; }
 .slots span { color: var(--muted); }
 .slots span.on { color: var(--text); }
+.actrow .course-chips { flex-wrap: nowrap; gap: 6px; }
+.actrow .course-chips .chip-btn { flex: 1; padding: 8px 4px; font-size: 13px; text-align: center; white-space: nowrap; }
