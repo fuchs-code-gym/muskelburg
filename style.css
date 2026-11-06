@@ -485,3 +485,9 @@ body.ov-open { overflow: hidden; }
 .spar-btn { width: 100%; margin-top: 16px; display: flex; flex-direction: column; gap: 2px; }
 .spar-btn small { font-weight: 600; opacity: .75; text-transform: none; letter-spacing: 0; }
 .back-btn { margin-bottom: 10px; }
+
+/* ---------- Drei Spieler ---------- */
+.players .pchip { min-width: 0; flex: 1; }
+.opp-pick { align-items: center; margin: 0 0 10px; }
+.opp-pick small { color: var(--muted); font-weight: 700; margin-right: 2px; }
+.players:has(.pchip:nth-child(3)) .pchip { flex-direction: column; align-items: flex-start; gap: 0; padding: 6px 10px; }

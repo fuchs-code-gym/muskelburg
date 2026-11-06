@@ -135,6 +135,9 @@ const BADGES = [
 
 const DEVICE = new URLSearchParams(location.search).get('geraet') || '';
 const KEY = 'hantelhelden-v1' + DEVICE;
+// bis zu drei Helden pro Spiel
+const PIDS = ['a', 'b', 'c'];
+const defaultName = id => 'Spieler ' + (PIDS.indexOf(id) + 1);
 const GAME_KEY = 'hantelhelden-game-v1' + DEVICE;
 const DAY_MS = 86400000, H_MS = 3600e3;
 
@@ -161,7 +164,7 @@ function newHero(name) {
 }
 function freshState() {
   return {
-    v: 1, current: 'a', players: { a: newHero('Spieler 1'), b: newHero('Spieler 2') },
+    v: 1, current: 'a', players: Object.fromEntries(PIDS.map(id => [id, newHero(defaultName(id))])),
     season: { no: 1, chapter: 1, start: todayStr(), result: null }, hall: [], pact: '', resetId: rid(),
   };
 }
@@ -192,6 +195,7 @@ function load() {
     const s = JSON.parse(localStorage.getItem(KEY));
     if (s && s.v === 1) {
       for (const id in s.players) s.players[id] = normalizeHero(s.players[id]);
+      for (const id of PIDS) if (!s.players[id]) s.players[id] = newHero(defaultName(id)); // früher nur 2 Plätze
       return normalizeMeta(s);
     }
   } catch (e) { /* kaputter Speicher → neues Spiel */ }
@@ -223,7 +227,15 @@ let sync = null, connected = false;
 const online = () => !!(game && game.id);
 const ownIds = () => online() ? [game.me] : Object.keys(state.players);
 const mine = () => ownIds().map(id => state.players[id]);
-const partnerOf = p => Object.values(state.players).find(x => x !== p);
+// Wer spielt mit? Online zählen nur Plätze, die jemand übernommen hat
+const team = () => PIDS.filter(id => state.players[id] && (!online() || id === game.me || state.players[id].updatedAt)).map(id => state.players[id]);
+const othersOf = p => team().filter(x => x !== p);
+const teamF = () => Math.max(1, team().length / 2); // Schweinehund wächst mit dem Team
+let sparTarget = null;    // Sparring-Gegner
+function sparOpp(p) {
+  const os = othersOf(p);
+  return os.find(x => idOf(x) === sparTarget) || os[0] || null;
+}
 if (online()) state.current = game.me;
 state.outbox = state.outbox || [];
 
@@ -299,7 +311,7 @@ const syncHandlers = {
       return;
     }
     const before = state.players[pid] ? seasonDamage(state.players[pid]) : 0;
-    state.players[pid] = otherFromRemote(data, pid === 'a' ? 'Spieler 1' : 'Spieler 2');
+    state.players[pid] = otherFromRemote(data, defaultName(pid));
     const gained = seasonDamage(state.players[pid]) - before;
     if (!first && gained > 0 && !hitShow) toast(`⚡ ${state.players[pid].name} trifft den Schweinehund: −${num(gained)}!`);
     render();
@@ -345,14 +357,15 @@ async function codeOk() {
 const STAKES = ['🥙 Döner', '🥤 Protein-Shake', '☕ Kaffee', '🍦 Eis'];
 let setupStake = STAKES[0];
 function stakeLoser() {
-  const ps = Object.values(state.players);
+  const ps = team();
   if (ps.length < 2) return null;
-  const [top, low] = [...ps].sort((x, y) => seasonDamage(y) - seasonDamage(x));
+  const sorted = [...ps].sort((x, y) => seasonDamage(y) - seasonDamage(x));
+  const top = sorted[0], low = sorted[sorted.length - 1];
   if (seasonDamage(top) === seasonDamage(low)) return null;
   return { payer: low, winner: top };
 }
 function setStake() {
-  const v = prompt('Euer Einsatz: Was gibt der mit weniger Schaden aus, wenn der Schweinehund überlebt? (z. B. 🥙 Döner, 🥤 Protein-Shake)', state.stake || '');
+  const v = prompt('Euer Einsatz: Was gibt der mit dem wenigsten Schaden aus, wenn der Schweinehund überlebt? (z. B. 🥙 Döner, 🥤 Protein-Shake)', state.stake || '');
   if (v === null) return;
   state.stake = v.trim().slice(0, 60);
   metaSet({ stake: state.stake });
@@ -391,8 +404,8 @@ async function joinGame(pid) {
   state.outbox = [];
   if (snap && snap.meta) Object.assign(state, normalizeMeta(snap.meta));
   state.players[pid] = existing ? normalizeHero(existing) : normalizeHero({ name });
-  for (const o of Object.keys(state.players)) {
-    if (o !== pid) state.players[o] = otherFromRemote(snap && snap.players && snap.players[o], o === 'a' ? 'Spieler 1' : 'Spieler 2');
+  for (const o of PIDS) {
+    if (o !== pid) state.players[o] = otherFromRemote(snap && snap.players && snap.players[o], defaultName(o));
   }
   reconcileOwn();
   save();
@@ -474,13 +487,13 @@ function seasonDamage(p) { return sum(Object.keys(p.dmg).filter(inSeason).map(d 
 function weekDamage(p, wk = weekKey()) {
   return sum(Object.keys(p.dmg).filter(d => d >= wk && d < addDays(wk, 7) && inSeason(d)).map(d => dayDmg(p, d)));
 }
-function bossMax() { return Math.round(BOSS_HP * chapterF()); }
+function bossMax() { return Math.round(BOSS_HP * chapterF() * teamF()); }
 // Lebenspunkte: Maximum − Schaden beider + Heilung an Tagen, an denen niemand trainiert hat
 function bossState() {
   const max = bossMax();
   const players = Object.values(state.players);
   const half = players.some(p => hasTalent(p, 'mind', 50));
-  const regen = Math.round(BOSS_REGEN * chapterF() * (half ? 0.5 : 1));
+  const regen = Math.round(BOSS_REGEN * chapterF() * teamF() * (half ? 0.5 : 1));
   const last = state.season.result ? state.season.result.day : todayStr();
   let hp = max, lazy = 0;
   for (let d = state.season.start; d <= last && d < seasonEnd(); d = addDays(d, 1)) {
@@ -493,7 +506,7 @@ function bossState() {
 function monsterOfWeek(wk = weekKey()) {
   const i = Math.max(0, Math.floor(daysBetween(state.season.start, wk) / 7) + state.season.no) % MONSTERS.length;
   const m = MONSTERS[i];
-  const max = Math.round(MONSTER_HP * chapterF());
+  const max = Math.round(MONSTER_HP * chapterF() * teamF());
   const dealt = sum(Object.values(state.players).map(p => weekDamage(p, wk)));
   return { ...m, max, hp: Math.max(0, max - dealt), wk };
 }
@@ -532,7 +545,7 @@ function claimRewards(p) {
   const last = addDays(weekKey(), -7);
   if (!p.claimed['c' + last] && (inSeason(last) || inSeason(addDays(last, 6)))) {
     p.claimed['c' + last] = true;
-    const mineW = weekDamage(p, last), other = partnerOf(p) ? weekDamage(partnerOf(p), last) : 0;
+    const mineW = weekDamage(p, last), other = Math.max(0, ...othersOf(p).map(x => weekDamage(x, last)));
     if (mineW > 0 && mineW >= other) { p.life.crowns++; if (p === me()) toast('👑 Du warst letzte Woche MVP!', true); }
     changed = true;
   }
@@ -621,8 +634,8 @@ function damageOf(p, a, { pr = false, timing = 1, crit = false } = {}) {
   if (crit) add('Kritisch', CRIT_MULT);
   add('Schlag', timing);
   if (p.cheer) add('Angefeuert', CHEER_MULT);
-  const other = partnerOf(p);
-  if (other && seasonDamage(other) > 500 && seasonDamage(p) < 0.6 * seasonDamage(other)) add('Comeback', COMEBACK_MULT);
+  const best = Math.max(0, ...othersOf(p).map(seasonDamage));
+  if (best > 500 && seasonDamage(p) < 0.6 * best) add('Comeback', COMEBACK_MULT);
   add('Gesund gelebt', 1 + HEALTH_BONUS * healthToday(p).length);
   add('Erholung nötig', DAY_FALLOFF[Math.min(sessionsToday(p), DAY_FALLOFF.length - 1)]);
   return { dmg: Math.round(dmg), mults };
@@ -708,13 +721,13 @@ function health(id) {
 }
 
 function cheer() {
-  const p = me(), other = partnerOf(p);
-  if (p.cheerSent === todayStr()) return;
+  const p = me(), others = othersOf(p);
+  if (p.cheerSent === todayStr() || !others.length) return;
   p.cheerSent = todayStr();
   p.life.cheers++;
-  sendEvent(idOf(other), { kind: 'cheer', from: p.name });
+  for (const o of others) sendEvent(idOf(o), { kind: 'cheer', from: p.name });
   save();
-  toast(`📣 ${other.name} angefeuert – nächstes Training +25 %!`);
+  toast(`📣 ${others.map(o => o.name).join(' und ')} angefeuert – nächstes Training +25 %!`);
   render();
 }
 
@@ -779,7 +792,7 @@ function newSeason() {
   const sl = !r.won && state.stake ? stakeLoser() : null;
   state.hall.unshift({ no: state.season.no, chapter: ch, won: r.won, day: r.day, pact: state.pact,
     paid: sl ? `${sl.payer.name} → ${sl.winner.name}: ${state.stake}` : '',
-    mvp: [...Object.values(state.players)].sort((x, y) => seasonDamage(y) - seasonDamage(x))[0].name });
+    mvp: [...team()].sort((x, y) => seasonDamage(y) - seasonDamage(x))[0].name });
   const carry = {};
   for (const [id, p] of Object.entries(state.players)) carry[id] = p.dmg[todayStr()] || 0;
   state.season = { no: state.season.no + 1, chapter: r.won ? ch + 1 : ch, start: todayStr(), result: null, carry };
@@ -894,7 +907,8 @@ function sendDuel() {
     sendEvent(d.from, { kind: 'result', result: res });
   } else {
     if (p.energy < 1) { toast('⚡ Keine Energie – jedes Training lädt 1 ⚡'); return; }
-    const other = partnerOf(p);
+    const other = sparOpp(p);
+    if (!other) return;
     const d = { id: rid() + rid(), from: idOf(p), to: idOf(other), fromName: p.name, toName: other.name, tactics: [...duelPick],
       at: Date.now(), deadline: Date.now() + CHALLENGE_H * H_MS, snap: fighterOf(p) };
     p.energy--;
@@ -928,6 +942,7 @@ const actions = {
   introdone: () => { introPage = null; try { localStorage.setItem(INTRO_KEY, '1'); } catch (e) { /* ignorieren */ } render(); window.scrollTo(0, 0); },
   tab: t => { tab = t; render(); window.scrollTo(0, 0); },
   sheet: () => { sheetOpen = true; render(); },
+  sparwith: id => { sparTarget = id; render(); },
   closesheet: () => { sheetOpen = false; render(); },
   bet: () => { if (!state.pact) setPact(); else if (!state.stake) setStake(); else { tab = 'mehr'; render(); window.scrollTo(0, 0); } },
   player: id => { if (online()) return; state.current = id; duelOpen = false; save(); render(); },
@@ -958,8 +973,8 @@ const fmtMult = f => '×' + String(Math.round(f * 100) / 100).replace('.', ',');
 
 function renderHeader() {
   const wk = weekKey();
-  const lead = Math.max(...Object.values(state.players).map(p => weekDamage(p, wk)));
-  document.getElementById('players').innerHTML = Object.entries(state.players).map(([id, p]) => `
+  const lead = Math.max(...team().map(p => weekDamage(p, wk)));
+  document.getElementById('players').innerHTML = team().map(p => [idOf(p), p]).map(([id, p]) => `
     <button class="pchip ${id === state.current ? 'on' : ''} ${online() && id !== game.me ? 'other' : ''}" data-act="player" data-arg="${id}">
       <b>${lead > 0 && weekDamage(p, wk) === lead ? '👑 ' : ''}${esc(p.name)}</b><small>${num(weekDamage(p, wk))} ⚡</small>
     </button>`).join('');
@@ -1080,7 +1095,7 @@ function heroSvg(p, size = '') {
 /* ---------- Jagd (Hauptbildschirm) ---------- */
 
 function viewJagd() {
-  const p = me(), other = partnerOf(p);
+  const p = me(), others = othersOf(p);
   const b = bossState(), mon = monsterOfWeek();
   const pct = b.hp / b.max;
   const res = state.season.result;
@@ -1109,8 +1124,8 @@ function viewJagd() {
     <button class="btn primary big train-btn" data-act="sheet" ${res ? 'disabled' : ''}>💪 Training eintragen</button>
 
     <div class="today">
-      <span>Heute: <b>Du ${p.dmg[todayStr()] ? '✓' : '–'}</b> · <b>${esc(other.name)} ${other.dmg[todayStr()] ? '✓' : '–'}</b></span>
-      <button class="btn small" data-act="cheer" ${p.cheerSent === todayStr() ? 'disabled' : ''}>${p.cheerSent === todayStr() ? '📣 angefeuert ✓' : '📣 anfeuern'}</button>
+      <span>Heute: ${team().map(x => `<b>${x === p ? 'Du' : esc(x.name)} ${x.dmg[todayStr()] ? '✓' : '–'}</b>`).join(' · ')}</span>
+      <button class="btn small" data-act="cheer" ${p.cheerSent === todayStr() || !others.length ? 'disabled' : ''}>${p.cheerSent === todayStr() ? '📣 angefeuert ✓' : '📣 anfeuern'}</button>
     </div>
 
     <h2>Gesund gelebt <small>je +5 % Schaden heute</small></h2>
@@ -1196,7 +1211,7 @@ function revealOverlay() {
 /* ---------- Held ---------- */
 
 function viewHeld() {
-  const p = me(), lvl = levelOf(p), other = partnerOf(p);
+  const p = me(), lvl = levelOf(p), others = othersOf(p);
   return `
     ${incomingBanner(p)}
     <section class="card hero-card">
@@ -1217,7 +1232,7 @@ function viewHeld() {
       return `<div class="card gslot" style="--rar:${r.color}"><span class="item-icon">${g.icon}</span><b>${g.name}</b><small class="rar">${r.name}</small></div>`;
     }).join('')}</div>
 
-    <button class="btn big spar-btn" data-act="tab" data-arg="sparring">🥊 Sparring gegen ${esc(other.name)}
+    <button class="btn big spar-btn" data-act="tab" data-arg="sparring" ${others.length ? '' : 'disabled'}>🥊 Sparring${others.length ? ` gegen ${others.map(o => esc(o.name)).join(' oder ')}` : ' – lade erst jemanden ein'}
       <small>${p.incoming.length ? `${p.incoming.length} Herausforderung offen!` : `⚡ ${p.energy}/${ENERGY_MAX} Energie`}</small></button>`;
 }
 
@@ -1232,7 +1247,8 @@ function incomingBanner(p) {
 }
 
 function viewSparring() {
-  const p = me(), other = partnerOf(p);
+  const p = me(), other = sparOpp(p), others = othersOf(p);
+  if (!other) return `<button class="btn small ghost back-btn" data-act="tab" data-arg="held">← zurück zum Helden</button><p class="hint">Noch niemand zum Sparren da – teile den Einladungslink unter „Mehr“.</p>`;
   if (duelOpen) return duelSetup(p, other);
   const fresh = freshReport && p.reports.find(r => r.id === freshReport);
   const L = p.life;
@@ -1240,6 +1256,7 @@ function viewSparring() {
     <button class="btn small ghost back-btn" data-act="tab" data-arg="held">← zurück zum Helden</button>
     ${fresh ? reportCard(fresh, true) : ''}
     ${incomingBanner(p)}
+    ${others.length > 1 ? `<div class="course-chips opp-pick"><small>Gegner:</small>${others.map(o => `<button class="chip-btn ${o === other ? 'on' : ''}" data-act="sparwith" data-arg="${idOf(o)}">${esc(o.name)}</button>`).join('')}</div>` : ''}
     <section class="card versus">
       <div class="vs-side">${heroSvg(p, 'mini')}<b>Du</b><small>Level ${levelOf(p)}</small></div>
       <div class="vs-mid">VS</div>
@@ -1303,14 +1320,14 @@ function reportCard(r, animate) {
 
 function stakeLine() {
   const sl = stakeLoser();
-  return `<div class="stake">${esc(state.stake)} <b>Einsatz:</b> Überlebt er, gibt der mit weniger Schaden aus.
+  return `<div class="stake">${esc(state.stake)} <b>Einsatz:</b> Überlebt er, gibt der mit dem wenigsten Schaden dem Besten aus.
     ${sl ? `<small>Stand jetzt zahlt: <b>${esc(sl.payer.name)}</b> 😬</small>` : ''}</div>`;
 }
 
 /* ---------- Saison ---------- */
 
 function viewSaison() {
-  const players = Object.values(state.players);
+  const players = team();
   const b = bossState();
   const weeks = [];
   for (let wk = weekKey(new Date(state.season.start + 'T12:00')); wk <= weekKey() && wk < seasonEnd(); wk = addDays(wk, 7)) weeks.push(wk);
@@ -1405,7 +1422,7 @@ function viewSetup() {
   const nameField = '<input id="setup-name" class="field" maxlength="20" placeholder="Dein Name" autocomplete="nickname">';
   if (setupStep === 'invite') {
     return `<section class="card setup"><div class="setup-icon">🐷</div><h2>Die Jagd beginnt!</h2>
-      <p>Schick deinem Trainingspartner diesen Link – zusammen jagt ihr den inneren Schweinehund.</p>
+      <p>Schick deinen Trainingspartnern (bis zu 2) diesen Link – zusammen jagt ihr den inneren Schweinehund.</p>
       <div class="linkbox">${esc(inviteLink())}</div>
       <button class="btn primary" data-act="share">🔗 Link teilen</button>
       <button class="btn" data-act="setupdone">Los geht's 💪</button></section>`;
@@ -1417,11 +1434,13 @@ function viewSetup() {
         <p>${joinInfo.error ? 'Keine Verbindung – bitte mit Internet nochmal öffnen.' : 'Der Link ist ungültig oder das Spiel wurde gelöscht.'}</p></section>`;
     }
     const players = joinInfo.players || {};
+    const taken = PIDS.filter(pid => players[pid] && players[pid].updatedAt);
+    const free = PIDS.find(pid => !taken.includes(pid));
     return `<section class="card setup">${bossSvg(1, 1)}<h2>Hilf bei der Jagd!</h2>
-      <p>Dein Trainingspartner jagt den inneren Schweinehund – und braucht dich.</p>
-      ${joinInfo.meta.stake ? `<div class="stake">${esc(joinInfo.meta.stake)} <b>Einsatz:</b> Überlebt er, gibt der mit weniger Schaden aus.</div>` : ''}${nameField}
-      ${['a', 'b'].map(pid => { const taken = players[pid] && players[pid].updatedAt;
-        return `<button class="btn ${taken ? '' : 'primary'}" data-act="join" data-arg="${pid}">${taken ? `Ich bin ${esc(players[pid].name)} (anderes Gerät)` : 'Mitmachen'}</button>`; }).join('')}
+      <p>${taken.map(pid => esc(players[pid].name)).join(' und ')} ${taken.length > 1 ? 'jagen den inneren Schweinehund – und brauchen dich.' : 'jagt den inneren Schweinehund – und braucht dich.'}</p>
+      ${joinInfo.meta.stake ? `<div class="stake">${esc(joinInfo.meta.stake)} <b>Einsatz:</b> Überlebt er, gibt der mit dem wenigsten Schaden aus.</div>` : ''}
+      ${free ? `${nameField}<button class="btn primary" data-act="join" data-arg="${free}">Mitmachen</button>` : '<p class="hint">Das Team ist voll (3 Leute).</p>'}
+      ${taken.map(pid => `<button class="btn" data-act="join" data-arg="${pid}">Ich bin ${esc(players[pid].name)} (anderes Gerät)</button>`).join('')}
       <p class="hint">„Anderes Gerät“ nur, wenn du schon mitspielst und das Gerät wechselst.</p></section>`;
   }
   return `<section class="card setup">
@@ -1429,7 +1448,7 @@ function viewSetup() {
       <h2>Jagt den inneren Schweinehund!</h2>
       <p>Er liegt auf dem Sofa und lacht euch aus. Jedes Training ist ein Treffer – und an jedem faulen Tag heilt er sich. Schafft ihr ihn in 6 Wochen?</p>
       <div class="stake-pick"><b>😬 Euer Einsatz</b>
-        <small>Überlebt der Schweinehund, gibt der mit weniger Schaden dem anderen aus:</small>
+        <small>Überlebt der Schweinehund, gibt der mit dem wenigsten Schaden dem Besten aus:</small>
         <div class="course-chips">${[...new Set([...STAKES, setupStake])].map(s => `<button class="chip-btn ${s === setupStake ? 'on' : ''}" data-act="pickstake" data-arg="${esc(s)}">${esc(s)}</button>`).join('')}
           <button class="chip-btn" data-act="pickstake" data-arg="eigen">✏️ Eigener</button></div></div>
       ${nameField}
@@ -1445,12 +1464,12 @@ function viewSetup() {
 
 const INTRO = [
   { pic: () => bossSvg(1, 1), title: 'Euer Gegner: der innere Schweinehund',
-    body: `<p>Er liegt auf dem Sofa, futtert Chips und lacht euch aus. Ihr seid zu zweit – und ihr jagt ihn <b>gemeinsam</b>.</p>
+    body: `<p>Er liegt auf dem Sofa, futtert Chips und lacht euch aus. Ihr seid ein Team aus zwei oder drei Leuten – und ihr jagt ihn <b>gemeinsam</b>.</p>
       <ul class="intro-list">
-        <li>🎯 <b>Ziel:</b> ${BOSS_HP.toLocaleString('de-DE')} Lebenspunkte in <b>${SEASON_DAYS / 7} Wochen</b> runterprügeln.</li>
-        <li>😴 An jedem Tag, an dem <b>keiner</b> trainiert, heilt er sich um ${BOSS_REGEN}.</li>
+        <li>🎯 <b>Ziel:</b> ${BOSS_HP.toLocaleString('de-DE')} Lebenspunkte (zu dritt ${(BOSS_HP * 1.5).toLocaleString('de-DE')}) in <b>${SEASON_DAYS / 7} Wochen</b> runterprügeln.</li>
+        <li>😴 An jedem Tag, an dem <b>keiner</b> trainiert, heilt er sich.</li>
         <li>🏆 Geschafft? Dann kommt Kapitel 2 – mit einem stärkeren Schweinehund.</li>
-        <li>😬 Nicht geschafft? Dann gibt der mit weniger Schaden den <b>Einsatz</b> aus – z. B. einen 🥙 Döner.</li>
+        <li>😬 Nicht geschafft? Dann gibt der mit dem wenigsten Schaden dem Besten den <b>Einsatz</b> aus – z. B. einen 🥙 Döner.</li>
       </ul>` },
   { pic: () => '<div class="intro-icon">👊</div>', title: 'Jedes Training ist ein Treffer',
     body: `<ol class="intro-steps">

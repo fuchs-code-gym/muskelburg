@@ -49,7 +49,7 @@ window.MB_SYNC = {
   watch(game, me, h) {
     onValue(ref(db, '.info/connected'), s => h.connection(!!s.val()));
     onValue(path(game, 'meta'), s => h.meta(s.val()));
-    for (const pid of ['a', 'b']) {
+    for (const pid of ['a', 'b', 'c']) {
       let first = true;
       onValue(path(game, 'players', pid), s => { h.player(pid, s.val(), first); first = false; });
     }
