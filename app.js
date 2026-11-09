@@ -15,7 +15,7 @@ const BASE_STAT = 10;
 
 // Training in Zeitblöcken: type = Schadensart, base = Grundschaden je Block, gives = Wertepunkte je Block
 const ACTIVITIES = [
-  { id: 'kraft', name: 'Kraft', unit: '15 Min. · Geräte, Hanteln, Milon – gern am Limit', icon: '💪', type: 'str', step: 15, maxMin: 60, base: 135, gives: { str: 5 }, pr: true },
+  { id: 'kraft', name: 'Kraft', unit: '5 Min. am Limit · Geräte, Hanteln, Milon', icon: '💪', type: 'str', step: 5, maxMin: 60, base: 45, gives: { str: 2 }, pr: true },
   { id: 'puls', name: 'Ausdauer', unit: '10 Min. · Rad, Crosstrainer, Rudern', icon: '🫀', type: 'end', step: 10, maxMin: 90, base: 50, gives: { end: 2 } },
   { id: 'ausgleich', name: 'Ausgleich', unit: '10 Min. · Yoga, Kurs, Dehnen, Mobility', icon: '🧘', type: 'mind', step: 10, maxMin: 90, base: 45, gives: { mind: 2 } },
 ];
@@ -1579,7 +1579,7 @@ const INTRO = [
   { pic: () => '<div class="intro-icon">👊</div>', title: 'Jedes Training ist ein Treffer',
     body: `<ol class="intro-steps">
         <li>Leg dein <b>🎯 Wochenziel</b> fest, z. B. 3× Kraft und 2× Ausdauer. Schaffst du es, gibt es Bonus-Schaden.</li>
-        <li>Nach dem Gym: <b>💪 Training eintragen</b>, Einheiten zusammenstellen (z. B. 2× Kraft à 15 Min. + 1× Ausdauer à 10 Min.) und einmal bestätigen.</li>
+        <li>Nach dem Gym: <b>💪 Training eintragen</b>, Einheiten zusammenstellen (z. B. 6× Kraft à 5 Min. + 2× Ausdauer à 10 Min.) und einmal bestätigen.</li>
         <li><b>Zuschlagen:</b> Ein Balken pendelt – triff die Mitte für bis zu +30 % Schaden. Oder ohne Minispiel eintragen.</li>
         <li>Der Schweinehund steckt ein, seine Lebensleiste sinkt.</li>
       </ol>
