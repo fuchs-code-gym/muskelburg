@@ -1638,7 +1638,17 @@ function render() {
   nextReveal();
   renderHeader();
   document.getElementById('view').innerHTML = VIEWS[tab]();
-  document.getElementById('overlay').innerHTML = pending ? swingOverlay() : hitShow ? hitOverlay() : reveal ? revealOverlay() : sheetOpen ? trainSheet() : goalOpen ? goalEditor() : '';
+  const ov = document.getElementById('overlay');
+  const kind = pending ? 'swing' : hitShow ? 'hit' : reveal ? 'reveal' : sheetOpen ? 'menu' : goalOpen ? 'goal' : '';
+  const html = pending ? swingOverlay() : hitShow ? hitOverlay() : reveal ? revealOverlay() : sheetOpen ? trainSheet() : goalOpen ? goalEditor() : '';
+  const card = ov.querySelector('.ov-card');
+  if ((kind === 'menu' || kind === 'goal') && ov.dataset.kind === kind && card) {
+    // Menü bleibt offen: nur den Inhalt austauschen, damit nichts flackert oder neu aufgeht
+    const tmp = document.createElement('div');
+    tmp.innerHTML = html;
+    card.innerHTML = tmp.querySelector('.ov-card').innerHTML;
+  } else ov.innerHTML = html;
+  ov.dataset.kind = kind;
   document.body.classList.toggle('ov-open', !!(pending || hitShow || reveal || sheetOpen || goalOpen));
 }
 
