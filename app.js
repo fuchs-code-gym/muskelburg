@@ -1228,10 +1228,10 @@ function trainSheet() {
       <div class="ov-card sheet" data-stop="1">
         <div class="sheet-head"><h2>Was hast du gemacht?</h2><button class="btn small" data-act="closesheet">✕</button></div>
         ${ACTIVITIES.map(a => actRow(p, a)).join('')}
-        ${hasPr ? `<div class="prtoggle ${prOn && !prToday(p) ? 'on' : ''} ${prToday(p) ? 'used' : ''}" data-act="pr">
-          <span class="pr-box">${prOn && !prToday(p) ? '✓' : ''}</span>
-          <span class="bld-title"><b>🏆 Neuer Rekord / Gewicht erhöht</b><small>${prToday(p) ? 'Heute schon eingetragen – stark!' : 'Eine Kraft-Einheit zählt ×2,5 – 1× am Tag'}</small></span>
-        </div>` : ''}
+        <div class="prtoggle ${hasPr && prOn && !prToday(p) ? 'on' : ''} ${prToday(p) || !hasPr ? 'used' : ''}" ${hasPr && !prToday(p) ? 'data-act="pr"' : ''}>
+          <span class="pr-box">${hasPr && prOn && !prToday(p) ? '✓' : ''}</span>
+          <span class="bld-title"><b>🏆 Neuer Rekord / Gewicht erhöht</b><small>${prToday(p) ? 'Heute schon eingetragen – stark!' : hasPr ? 'Eine Kraft-Einheit zählt ×2,5 – 1× am Tag' : 'Nur mit Kraft – eine Einheit zählt dann ×2,5'}</small></span>
+        </div>
         <button class="btn primary big" data-act="train" ${total ? '' : 'disabled'}>${total ? `✓ Eintragen · ${total} Min.` : 'Einheiten wählen'}</button>
       </div>
     </div>`;
