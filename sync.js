@@ -46,6 +46,11 @@ window.MB_SYNC = {
     remove(path(game, 'events', pid, key));
   },
 
+  // ganzes Spiel endgültig löschen (für alle Mitspieler)
+  removeGame(game) {
+    return remove(path(game));
+  },
+
   watch(game, me, h) {
     onValue(ref(db, '.info/connected'), s => h.connection(!!s.val()));
     onValue(path(game, 'meta'), s => h.meta(s.val()));

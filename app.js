@@ -243,6 +243,7 @@ const me = () => state.players[state.current];
 let game = null;
 try { game = JSON.parse(localStorage.getItem(GAME_KEY)); } catch (e) { /* kein Spiel */ }
 let sync = null, connected = false;
+let gameDeleted = false; // Spiel wurde gelöscht → nichts mehr hochladen
 const online = () => !!(game && game.id);
 const ownIds = () => online() ? [game.me] : Object.keys(state.players);
 const mine = () => ownIds().map(id => state.players[id]);
@@ -262,12 +263,12 @@ function saveGame(g) { game = g; try { localStorage.setItem(GAME_KEY, JSON.strin
 const clean = x => JSON.parse(JSON.stringify(x));
 
 function pushMine() {
-  if (!online() || !sync) return;
+  if (!online() || !sync || gameDeleted) return;
   sync.setPlayer(game.id, game.me, clean(state.players[game.me]));
   flushOutbox();
 }
 function flushOutbox() {
-  if (!online() || !sync) return;
+  if (!online() || !sync || gameDeleted) return;
   while (state.outbox.length) {
     const o = state.outbox.shift();
     if (o.meta) sync.updateMeta(game.id, clean(o.meta));
@@ -314,7 +315,16 @@ function otherFromRemote(data, name) {
 const syncHandlers = {
   connection(ok) { connected = ok; renderSyncDot(); },
   meta(m) {
-    if (!m) return;
+    if (!m) {
+      // ein Mitspieler hat das Spiel gelöscht → auf diesem Gerät auch aufräumen
+      if (!gameDeleted) {
+        gameDeleted = true;
+        try { localStorage.removeItem(GAME_KEY); localStorage.removeItem(KEY); } catch (e) { /* ignorieren */ }
+        alert('🗑️ Dieses Spiel wurde von einem Mitspieler gelöscht.');
+        location.reload();
+      }
+      return;
+    }
     Object.assign(state, normalizeMeta({ season: m.season, hall: m.hall, pact: m.pact, stake: m.stake, resetId: m.resetId }));
     resolveAll();
     render();
@@ -441,6 +451,18 @@ async function shareInvite() {
   const url = inviteLink();
   try { if (navigator.share) { await navigator.share({ title: 'Hantelhelden', text: 'Hilf mir, den inneren Schweinehund zu jagen! 🐷💪', url }); return; } } catch (e) { /* abgebrochen */ }
   try { await navigator.clipboard.writeText(url); toast('🔗 Link kopiert'); } catch (e) { prompt('Diesen Link schicken:', url); }
+}
+// Spiel endgültig löschen: entfernt alle Daten aus der Online-Datenbank
+async function deleteGame() {
+  if (!online() || !window.MB_SYNC) { toast('Keine Verbindung – bitte mit Internet versuchen'); return; }
+  if (!confirm('Spiel für ALLE endgültig löschen? Alle Helden, Beute und der Verlauf werden aus der Online-Datenbank entfernt. Das lässt sich nicht rückgängig machen.')) return;
+  const v = prompt('Zur Sicherheit bitte LÖSCHEN eintippen:', '');
+  if (!v || v.trim().toUpperCase() !== 'LÖSCHEN') { toast('Nicht gelöscht'); return; }
+  gameDeleted = true;
+  try { await window.MB_SYNC.removeGame(game.id); } catch (e) { gameDeleted = false; toast('Löschen fehlgeschlagen – bitte nochmal versuchen'); return; }
+  try { localStorage.removeItem(GAME_KEY); localStorage.removeItem(KEY); } catch (e) { /* ignorieren */ }
+  alert('🗑️ Das Spiel wurde gelöscht.');
+  location.reload();
 }
 function leaveGame() {
   if (!confirm('Dieses Gerät vom Spiel abmelden? Dein Held bleibt online gespeichert – mit dem Einladungslink kommst du wieder rein.')) return;
@@ -990,7 +1012,7 @@ const actions = {
   closeduel: () => { duelOpen = false; answering = null; duelPick = []; render(); },
   fight: sendDuel, seen: () => { freshReport = null; render(); },
   setdefault: arg => { const [i, t] = arg.split(':'); me().tactics[Number(i)] = t; save(); render(); },
-  create: createGame, join: joinGame, local: playLocal, share: shareInvite, leave: leaveGame,
+  create: createGame, deletegame: deleteGame, join: joinGame, local: playLocal, share: shareInvite, leave: leaveGame,
   setupdone: () => { setupStep = null; render(); },
   intro: () => { introPage = 0; render(); window.scrollTo(0, 0); },
   intronext: () => { introPage = Math.min(INTRO.length - 1, introPage + 1); render(); window.scrollTo(0, 0); },
@@ -1513,7 +1535,8 @@ function viewProfil() {
       ${online() ? `
         <div class="row"><span>${connected ? '🟢 Online verbunden' : '🟠 Gerade offline – wird nachgeholt'}</span></div>
         <div class="row"><span>🔗 Einladungslink</span><button class="btn small" data-act="share">Teilen</button></div>
-        <div class="row"><span>📱 Dieses Gerät abmelden</span><button class="btn small" data-act="leave">Abmelden</button></div>`
+        <div class="row"><span>📱 Dieses Gerät abmelden</span><button class="btn small" data-act="leave">Abmelden</button></div>
+        <div class="row"><span>🗑️ Spiel für alle löschen</span><button class="btn small danger" data-act="deletegame">Löschen</button></div>`
       : '<div class="row"><span>📴 Nur auf diesem Gerät</span><button class="btn small" data-act="leave">Online spielen</button></div>'}
       <div class="row"><span>🏰 Altes Dorf-Spiel</span><a class="btn small" href="dorf/">Archiv</a></div>
     </div>
