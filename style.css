@@ -551,3 +551,5 @@ b.who-link { text-decoration: underline dotted; text-underline-offset: 3px; }
 .fold-head h2 { margin: 0; flex: 1; }
 .fold.open .fold-head { border-radius: 14px 14px 0 0; background: var(--surface-2); }
 .fold-body { padding: 10px 0 4px; }
+.health-row .health { gap: 5px; flex-wrap: nowrap; }
+.health-row .chip-btn { flex: 1; min-width: 0; padding: 7px 4px; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }

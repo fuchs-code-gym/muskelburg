@@ -36,13 +36,13 @@ const COURSES = [
   { id: 'ruecken', name: 'Rücken', icon: '🦴' }, { id: 'spinning', name: 'Spinning', icon: '🚲' },
   { id: 'sonstiges', name: 'Sonstiges', icon: '✨' },
 ];
-// Gesund gelebt: je +5 % Schaden auf die Trainings des Tages („Gesund gegessen“ gibt es nicht mehr – nur noch für alte Einträge)
+// Gesund gelebt: je +5 % Schaden auf die Trainings des Tages
 const HEALTH = [
-  { id: 'schlaf', name: 'Gut geschlafen', icon: '😴' },
-  { id: 'essen',  name: 'Gesund gegessen', icon: '🥗' },
-  { id: 'wasser', name: 'Genug getrunken', icon: '💧' },
+  { id: 'schlaf', name: 'Gut geschlafen', short: 'Schlaf', icon: '😴' },
+  { id: 'essen',  name: 'Gesund gegessen', short: 'Essen', icon: '🥗' },
+  { id: 'wasser', name: 'Genug getrunken', short: 'Trinken', icon: '💧' },
 ];
-const HEALTH_NOW = HEALTH.filter(h => h.id !== 'essen');
+const HEALTH_NOW = HEALTH;
 const HEALTH_BONUS = 0.05;
 
 // Schaden
@@ -1333,9 +1333,9 @@ function trainSheet() {
       <div class="ov-card sheet" data-stop="1">
         <div class="sheet-head"><h2>Was hast du gemacht?</h2><button class="btn small" data-act="closesheet">✕</button></div>
         ${ACTIVITIES.map(a => actRow(p, a)).join('')}
-        <div class="health-row"><small>Heute außerdem · je +5 % Schaden</small>
+        <div class="health-row"><small>Heute gut geschlafen, gesund gegessen, genug getrunken? Je +5 % Schaden</small>
           <div class="health">${HEALTH_NOW.map(h => { const done = healthToday(p).includes(h.id);
-            return `<button class="chip-btn ${done ? 'done' : ''}" data-act="health" data-arg="${h.id}" ${done ? 'disabled' : ''}>${h.icon} ${h.name}${done ? ' ✓' : ''}</button>`; }).join('')}</div></div>
+            return `<button class="chip-btn ${done ? 'done' : ''}" data-act="health" data-arg="${h.id}" ${done ? 'disabled' : ''}>${h.icon} ${h.short}${done ? ' ✓' : ''}</button>`; }).join('')}</div></div>
         <div class="prtoggle ${hasPr && prOn && !prToday(p) ? 'on' : ''} ${prToday(p) || !hasPr ? 'used' : ''}" ${hasPr && !prToday(p) ? 'data-act="pr"' : ''}>
           <span class="pr-box">${hasPr && prOn && !prToday(p) ? '✓' : ''}</span>
           <span class="bld-title"><b>🏆 Neuer Rekord / Gewicht erhöht</b><small>${prToday(p) ? 'Heute schon eingetragen – stark!' : hasPr ? 'Eine Kraft-Einheit zählt ×2,5 – 1× am Tag' : 'Nur mit Kraft – eine Einheit zählt dann ×2,5'}</small></span>
@@ -1721,7 +1721,7 @@ const INTRO = [
         <li><b>Zuschlagen:</b> Ein Balken pendelt – triff die Mitte für bis zu +30 % Schaden. Oder ohne Minispiel eintragen.</li>
         <li>Der Schweinehund steckt ein, seine Lebensleiste sinkt.</li>
       </ol>
-      <p class="hint">Mehr Schaden gibt es für: 🏆 neuen Rekord (Gewicht gesteigert, 1× am Tag), 🔥 regelmäßiges Training (Combo), 😴 gut geschlafen & 💧 genug getrunken, 📣 Anfeuern vom Partner.</p>` },
+      <p class="hint">Mehr Schaden gibt es für: 🏆 neuen Rekord (Gewicht gesteigert, 1× am Tag), 🔥 regelmäßiges Training (Combo), 🥗 gesund gelebt (Schlaf, Essen, Trinken), 📣 Anfeuern vom Partner.</p>` },
   { pic: () => '<div class="intro-icon">🎁</div>', title: 'Beute & dein Held',
     body: `<ul class="intro-list">
         <li>🔐 Beim ersten Training des Tages öffnet sich dein <b>Spind</b> mit zufälliger Ausrüstung – von gewöhnlich bis <b style="color:#f5b81c">legendär</b>.</li>
