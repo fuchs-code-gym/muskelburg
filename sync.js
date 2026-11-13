@@ -17,7 +17,18 @@ const firebaseConfig = {
   appId: '1:92065015390:web:3e1638713d866dd40436cf',
 };
 
-const db = getDatabase(initializeApp(firebaseConfig));
+// App Check: nur unsere App darf die Datenbank nutzen (Prüfung über Google reCAPTCHA v3).
+// Öffentlicher Website-Schlüssel – der geheime Schlüssel liegt nur in der Firebase-Konsole.
+const RECAPTCHA_SITE_KEY = '';
+
+const app = initializeApp(firebaseConfig);
+if (RECAPTCHA_SITE_KEY) {
+  // beim Entwickeln am PC: Debug-Token statt reCAPTCHA (erscheint einmalig in der Konsole)
+  if (['localhost', '127.0.0.1'].includes(location.hostname)) self.FIREBASE_APPCHECK_DEBUG_TOKEN = true;
+  const { initializeAppCheck, ReCaptchaV3Provider } = await import('https://www.gstatic.com/firebasejs/10.12.2/firebase-app-check.js');
+  initializeAppCheck(app, { provider: new ReCaptchaV3Provider(RECAPTCHA_SITE_KEY), isTokenAutoRefreshEnabled: true });
+}
+const db = getDatabase(app);
 const path = (game, ...parts) => ref(db, ['g', game, ...parts].join('/'));
 
 window.MB_SYNC = {
@@ -54,7 +65,7 @@ window.MB_SYNC = {
   watch(game, me, h) {
     onValue(ref(db, '.info/connected'), s => h.connection(!!s.val()));
     onValue(path(game, 'meta'), s => h.meta(s.val()));
-    for (const pid of ['a', 'b', 'c']) {
+    for (const pid of ['a', 'b', 'c', 'd']) {
       let first = true;
       onValue(path(game, 'players', pid), s => { h.player(pid, s.val(), first); first = false; });
     }
