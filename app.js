@@ -51,8 +51,8 @@ const PR_MULT = 2.5;          // Neuer Rekord (Gewicht erhöht) = Volltreffer, 1
 const CRIT_MULT = 1.5;        // kritischer Treffer (Chance wächst mit Geist)
 const CHEER_MULT = 1.25;      // vom Partner angefeuert
 const COMEBACK_MULT = 1.25;   // wer in der Saison deutlich weniger Schaden hat
-// Erholung zählt: die ersten 60 Min. am Tag voll, bis 90 Min. 60 %, danach 30 %
-const falloffAt = m => m < 60 ? 1 : m < 90 ? 0.6 : 0.3;
+// Erholung zählt: die ersten 90 Min. am Tag voll, bis 120 Min. 60 %, danach 30 %
+const falloffAt = m => m < 90 ? 1 : m < 120 ? 0.6 : 0.3;
 
 // Saison: der Schweinehund
 const SEASON_DAYS = 42;          // alte Saisons: 6 Wochen; neue: ein Monat (season.end)
