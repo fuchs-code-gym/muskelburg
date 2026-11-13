@@ -20,8 +20,8 @@ const statBonus = v => STAT_CAP * v / (v + STAT_HALF);
 // Training in Zeitblöcken: type = Schadensart, base = Grundschaden je Block, gives = Wertepunkte je Block
 const ACTIVITIES = [
   { id: 'kraft', name: 'Kraft', unit: '5 Min. am Limit · Geräte, Hanteln, Milon', icon: '💪', type: 'str', step: 5, maxMin: 60, base: 45, gives: { str: 2 }, pr: true },
-  { id: 'puls', name: 'Ausdauer', unit: '10 Min. · Rad, Crosstrainer, Rudern', icon: '🫀', type: 'end', step: 10, maxMin: 90, base: 50, gives: { end: 2 } },
-  { id: 'ausgleich', name: 'Ausgleich', unit: '10 Min. · Yoga, Pilates, Dehnen, Mobility', icon: '🧘', type: 'mind', step: 10, maxMin: 90, base: 45, gives: { mind: 2 } },
+  { id: 'puls', name: 'Ausdauer', unit: '10 Min. · Rad, Crosstrainer, Rudern', icon: '🫀', type: 'end', step: 10, maxMin: 120, base: 50, gives: { end: 2 } },
+  { id: 'ausgleich', name: 'Ausgleich', unit: '10 Min. · Yoga, Pilates, Dehnen, Mobility', icon: '🧘', type: 'mind', step: 10, maxMin: 120, base: 45, gives: { mind: 2 } },
   // Kurs/Sport in 10-Min.-Schritten: wie Ausdauer (60 Min. = 300 Grundschaden), steigert Kraft und Ausdauer
   { id: 'sport', name: 'Kurs & Sport', unit: '10 Min. · Badminton, Bouldern, Spinning, Kurs', icon: '🏸', type: 'end', step: 10, maxMin: 120, base: 50, gives: { str: 1, end: 1 } },
 ];
