@@ -1419,6 +1419,9 @@ function lootCard(it) {
     </div>`;
 }
 
+// kleine Symbole für die Erklärung im Treffer-Fenster
+const MULT_ICON = { 'Ausrüstung': '🦾', 'Wuchtschlag': '🔨', 'Marathon': '🏁', 'Combo': '🔥', 'Neuer Rekord': '🏆', 'Kritisch': '💥', 'Schlag': '👊',
+  'Angefeuert': '📣', 'Comeback': '💫', 'Gesund gelebt': '🥗', 'Erholung nötig': '😮‍💨' };
 function hitOverlay() {
   const h = hitShow;
   const b = bossState();
@@ -1429,7 +1432,7 @@ function hitOverlay() {
         <div class="boss-mini">${bossSvg(b.hp / b.max, state.season.chapter, 'shake')}<div class="dmg-float ${h.crit || h.pr ? 'big' : ''}">−${num(h.dmg)}</div></div>
         <div class="hpbar"><i class="drain" style="--from:${h.bossBefore / b.max * 100}%;--to:${h.boss / b.max * 100}%"></i></div>
         <small>${num(h.boss)} / ${num(b.max)} Lebenspunkte übrig${h.monKilled ? ' · 👹 Wochenmonster besiegt!' : ''}</small>
-        ${h.pr || h.crit ? `<div class="mults">${h.pr ? '<span class="mult">🏆 Rekord-Volltreffer!</span>' : ''}${h.crit ? '<span class="mult">💥 Kritisch!</span>' : ''}</div>` : ''}
+        ${h.mults && h.mults.length ? `<div class="why"><small>Das hat gezählt:</small><div class="mults">${h.mults.map(m => `<span class="mult ${m.f < 1 ? 'down' : ''}">${MULT_ICON[m.label] || ''} ${m.label} ${fmtMult(m.f)}</span>`).join('')}</div></div>` : ''}
         ${h.item ? lootCard(h.item) : '<p class="hint">🔐 Dein Spind war heute schon offen – morgen gibt es neue Beute.</p>'}
         <button class="btn primary" data-act="closehit">Weiter 💪</button>
       </div>
@@ -1706,6 +1709,13 @@ function viewSetup() {
 /* ---------- Spielanleitung (wird beim ersten Start vorgeschaltet) ---------- */
 
 const INTRO = [
+  { pic: () => bossSvg(1, 1), title: 'In 30 Sekunden erklärt',
+    body: `<ul class="intro-list">
+        <li>🐷 <b>Gemeinsam</b> jagt ihr den inneren Schweinehund. In <b>einem Monat</b> muss er fallen.</li>
+        <li>💪 Nach dem Gym: <b>Training eintragen</b> – das ist dein Treffer. An faulen Tagen heilt er sich.</li>
+        <li>🎯 Leg dein <b>Wochenziel</b> fest. Wer es schafft, bekommt Bonus-Schaden und Top-Beute.</li>
+        <li>😬 Überlebt er, zahlt den <b>Einsatz</b>, wer sein eigenes Ziel am deutlichsten verfehlt hat.</li>
+      </ul>` },
   { pic: () => bossSvg(1, 1), title: 'Euer Gegner: der innere Schweinehund',
     body: `<p>Er liegt auf dem Sofa, futtert Chips und lacht euch aus. Ihr seid ein Team aus zwei bis vier Leuten – und ihr jagt ihn <b>gemeinsam</b>.</p>
       <ul class="intro-list">
@@ -1743,13 +1753,13 @@ function viewIntro() {
   const i = introPage, pg = INTRO[i], last = i === INTRO.length - 1;
   return `<section class="card setup intro">
       <div class="intro-pic">${pg.pic()}</div>
-      <div class="eyebrow">So funktioniert's · ${i + 1} / ${INTRO.length}</div>
+      <div class="eyebrow">${i === 0 ? "So funktioniert's" : `Details · ${i} / ${INTRO.length - 1}`}</div>
       <h2>${pg.title}</h2>
       <div class="intro-body">${pg.body}</div>
-      <div class="intro-dots">${INTRO.map((_, k) => `<i class="${k === i ? 'on' : ''}"></i>`).join('')}</div>
+      ${i > 0 ? `<div class="intro-dots">${INTRO.slice(1).map((_, k) => `<i class="${k === i - 1 ? 'on' : ''}"></i>`).join('')}</div>` : ''}
       <div class="intro-nav">
-        ${i > 0 ? '<button class="btn" data-act="introprev">← Zurück</button>' : '<button class="btn ghost" data-act="introdone">Überspringen</button>'}
-        <button class="btn primary" data-act="${last ? 'introdone' : 'intronext'}">${last ? "Los geht's 💪" : 'Weiter →'}</button>
+        ${i > 0 ? '<button class="btn" data-act="introprev">← Zurück</button>' : '<button class="btn ghost" data-act="intronext">Alle Details</button>'}
+        <button class="btn primary" data-act="${last || i === 0 ? 'introdone' : 'intronext'}">${last || i === 0 ? "Los geht's 💪" : 'Weiter →'}</button>
       </div>
     </section>`;
 }

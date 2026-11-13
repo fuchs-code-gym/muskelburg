@@ -553,3 +553,6 @@ b.who-link { text-decoration: underline dotted; text-underline-offset: 3px; }
 .fold-body { padding: 10px 0 4px; }
 .health-row .health { gap: 5px; flex-wrap: nowrap; }
 .health-row .chip-btn { flex: 1; min-width: 0; padding: 7px 4px; font-size: 13px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.why { margin: 8px 0 12px; }
+.why small { display: block; color: var(--muted); margin-bottom: 5px; }
+.why .mults { margin: 0; }
