@@ -357,6 +357,8 @@ const syncHandlers = {
       } else if (first) pushMine();
       return;
     }
+    // Held online weg (z. B. Spiel gelöscht) → lokale Kopie behalten, damit man wiederherstellen kann
+    if (!data && (gameDeleted || (state.players[pid] && state.players[pid].updatedAt))) return;
     const before = state.players[pid] ? seasonDamage(state.players[pid]) : 0;
     state.players[pid] = otherFromRemote(data, defaultName(pid));
     const gained = seasonDamage(state.players[pid]) - before;
