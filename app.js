@@ -144,7 +144,11 @@ const defaultName = id => 'Spieler ' + (PIDS.indexOf(id) + 1);
 const GAME_KEY = 'hantelhelden-game-v1' + DEVICE;
 const DAY_MS = 86400000, H_MS = 3600e3;
 
-function todayStr(d = new Date()) {
+let dayOverride = null;   // beim Nachtragen: so tun, als wäre heute dieser Tag
+function withDay(day, fn) { const old = dayOverride; dayOverride = day; try { return fn(); } finally { dayOverride = old; } }
+function todayStr(d) {
+  if (!d && dayOverride) return dayOverride;
+  d = d || new Date();
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 function addDays(day, n) { const d = new Date(day + 'T12:00'); d.setDate(d.getDate() + n); return todayStr(d); }
@@ -249,7 +253,11 @@ let goalOpen = false, goalDraft = {};
 let bossFold = true;      // Einsatz & Regeln auf der Jagd-Seite eingeklappt
 const openFolds = new Set(['f2']); // aufgeklappte Abschnitte unter „Mehr“
 let goalFold = true;
-let calFold = false;      // Kalender aufgeklappt      // Wochenziel-Karte eingeklappt
+let calFold = false;      // Kalender aufgeklappt
+let dayOpen = null;       // Tages-Fenster im Kalender
+let backfillDay = null;   // Training wird für diesen vergangenen Tag nachgetragen
+const BACKFILL_DAYS = 7;
+const canBackfill = d => !state.season.result && d < todayStr() && d >= state.season.start && d >= addDays(todayStr(), -BACKFILL_DAYS);      // Wochenziel-Karte eingeklappt
 let statsOf = null;       // Statistik-Fenster für diesen Spieler (id)
 const me = () => state.players[state.current];
 
@@ -559,7 +567,7 @@ function rankOf(life) { return [...RANKS].reverse().find(r => life.sessions >= r
 function nextRank(life) { return RANKS.find(r => r.min > life.sessions); }
 function earnedBadges(life) { return BADGES.filter(b => b.test(life)); }
 function idOf(p) { return Object.keys(state.players).find(id => state.players[id] === p); }
-function weekKey(d = new Date()) { const x = new Date(d); x.setDate(x.getDate() - (x.getDay() + 6) % 7); return todayStr(x); }
+function weekKey(d) { const x = new Date(d || (dayOverride ? dayOverride + 'T12:00' : Date.now())); x.setDate(x.getDate() - (x.getDay() + 6) % 7); return todayStr(x); }
 
 // ein Eintrag kann mehrere Einheiten enthalten (z. B. 2× Kraft + 1× Ausdauer)
 const partsOf = e => e.parts ? asList(e.parts) : [{ id: e.id, n: 1, min: e.min || 10 }];
@@ -774,6 +782,15 @@ function startTrain() {
   const parts = ACTIVITIES.filter(a => menu[a.id] > 0).map(a => ({ a, n: menu[a.id] }));
   if (!parts.length) return;
   if (state.season.result) { toast('Die Jagd ist vorbei – starte unter „Mehr“ die nächste!'); return; }
+  if (backfillDay) {
+    const day = backfillDay, pend = { parts, pr: prOn && parts.some(x => x.a.pr) && withDay(day, () => !prToday(me())) };
+    sheetOpen = false; menu = {}; backfillDay = null; prOn = false;
+    withDay(day, () => doTrain(pend, 1, '📅 Nachgetragen'));
+    const e = me().log.find(x => x.kind === 'train' && x.day === day);
+    if (e) { e.added = todayStr(); save(); }
+    render();
+    return;
+  }
   pending = { parts, pr: prOn && parts.some(x => x.a.pr) && !prToday(me()), t0: performance.now() };
   sheetOpen = false;
   menu = {};
@@ -864,11 +881,11 @@ function doTrain(pend, timing, grade) {
 }
 
 function health(id) {
-  const p = me();
-  if (healthToday(p).includes(id)) return;
-  p.log.unshift({ t: Date.now(), day: todayStr(), kind: 'health', id });
+  const p = me(), day = sheetOpen && backfillDay ? backfillDay : todayStr();
+  if (withDay(day, () => healthToday(p)).includes(id)) return;
+  p.log.unshift({ t: Date.now(), day, kind: 'health', id });
   save();
-  toast(`${byId(HEALTH, id).icon} +5 % Schaden auf deine Trainings heute`);
+  toast(`${byId(HEALTH, id).icon} +5 % Schaden auf deine Trainings ${day === todayStr() ? 'heute' : 'an dem Tag'}`);
   render();
 }
 
@@ -903,7 +920,7 @@ function scrap(uid) {
 function undo() {
   const p = me();
   const e = p.log[0];
-  if (!e || !['train', 'health'].includes(e.kind) || e.day !== todayStr() || !confirm('Letzten Eintrag rückgängig machen?')) return;
+  if (!e || !['train', 'health'].includes(e.kind) || (e.day !== todayStr() && e.added !== todayStr()) || !confirm('Letzten Eintrag rückgängig machen?')) return;
   if (e.kind === 'train') {
     const L = p.life;
     p.dmg[e.day] = Math.max(0, (p.dmg[e.day] || 0) - e.dmg - (e.goalBonus || 0));
@@ -1107,7 +1124,7 @@ const actions = {
   introprev: () => { introPage = Math.max(0, introPage - 1); render(); window.scrollTo(0, 0); },
   introdone: () => { introPage = null; try { localStorage.setItem(INTRO_KEY, '1'); } catch (e) { /* ignorieren */ } render(); window.scrollTo(0, 0); },
   tab: t => { tab = t; render(); window.scrollTo(0, 0); },
-  sheet: id => { menu = {}; if (id && unitsLeft(me(), byId(ACTIVITIES, id)) > 0) menu[id] = 1; sheetOpen = true; render(); },
+  sheet: id => { backfillDay = null; menu = {}; if (id && unitsLeft(me(), byId(ACTIVITIES, id)) > 0) menu[id] = 1; sheetOpen = true; render(); },
   menustep: menuStep,
   goaledit: () => { goalDraft = { ...(me().goal || { kraft: 2, puls: 1, ausgleich: 1 }) }; goalOpen = true; render(); },
   goalstep: arg => { const [id, d] = arg.split(':'); goalDraft[id] = Math.max(0, Math.min(7, (goalDraft[id] || 0) + Number(d))); render(); },
@@ -1115,11 +1132,13 @@ const actions = {
   goalsave: () => { const p = me(); const msg = setGoal(p, goalDraft); goalOpen = false; save(); toast(msg, true); render(); },
   goalfold: () => { goalFold = !goalFold; render(); },
   calfold: () => { calFold = !calFold; render(); },
-  calday: d => toast(calDayText(d), true),
+  calday: d => { dayOpen = d; render(); },
+  closeday: () => { dayOpen = null; render(); },
+  backfill: d => { if (!canBackfill(d)) return; backfillDay = d; dayOpen = null; menu = {}; sheetOpen = true; render(); },
   bossfold: () => { bossFold = !bossFold; render(); },
   fold: k => { openFolds.has(k) ? openFolds.delete(k) : openFolds.add(k); render(); },
   sparwith: id => { sparTarget = id; render(); },
-  closesheet: () => { sheetOpen = false; render(); },
+  closesheet: () => { sheetOpen = false; backfillDay = null; render(); },
   stats: id => { statsOf = id; render(); },
   closestats: () => { statsOf = null; render(); },
   resetmine: () => resetHero(),
@@ -1315,6 +1334,35 @@ function viewJagd() {
 const PCOLOR = { a: '#2f6fed', b: '#8e6bd8', c: '#0fa3a3', d: '#e0559b' };
 const fmtDay = d => new Date(d + 'T12:00').toLocaleDateString('de-DE', { day: 'numeric', month: 'numeric' });
 const trainedOn = (p, d) => p.log.some(e => e.kind === 'train' && e.day === d) || (p.dmg[d] || 0) > 0;
+const fmtWeekday = d => new Date(d + 'T12:00').toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'numeric' });
+function daySheet() {
+  const d = dayOpen, p0 = me();
+  const rows = team().map(p => {
+    const id = idOf(p);
+    const trains = p.log.filter(e => e.kind === 'train' && e.day === d);
+    const parts = {};
+    for (const x of trains.flatMap(partsOf)) parts[x.id] = (parts[x.id] || 0) + x.min;
+    const hs = p.log.filter(e => e.kind === 'health' && e.day === d).map(e => (byId(HEALTH, e.id) || {}).icon).join('');
+    const dmg = (p.dmg[d] || 0);
+    const body = Object.keys(parts).length
+      ? Object.entries(parts).map(([a, m]) => `<span>${actOf(a).icon} ${actOf(a).name} · ${m} Min.</span>`).join('')
+      : dmg ? '<span>trainiert</span>' : '<span class="muted">kein Training</span>';
+    return `<div class="day-row"><div class="day-who"><i style="background:${PCOLOR[id]}"></i><b>${esc(p.name)}${p === p0 ? ' (du)' : ''}</b>
+        ${dmg ? `<small>−${num(dmg)} Schaden</small>` : ''}</div>
+      <div class="day-what">${body}${hs ? `<span>${hs}</span>` : ''}${trains.some(e => e.added) ? '<small>📅 nachgetragen</small>' : ''}</div></div>`;
+  }).join('');
+  const bf = canBackfill(d);
+  return `
+    <div class="overlay sheet-wrap" data-act="closeday">
+      <div class="ov-card sheet" data-stop="1">
+        <div class="sheet-head"><h2>${fmtWeekday(d)}</h2><button class="btn small" data-act="closeday">✕</button></div>
+        ${rows}
+        ${bf ? `<button class="btn primary big" data-act="backfill" data-arg="${d}">➕ Training nachtragen</button>
+          <small class="hint">Vergessen einzutragen? Das geht bis zu ${BACKFILL_DAYS} Tage zurück – ohne Minispiel.</small>`
+          : d < todayStr() ? `<small class="hint">Nachtragen geht nur für die letzten ${BACKFILL_DAYS} Tage der laufenden Jagd.</small>` : ''}
+      </div>
+    </div>`;
+}
 function calDayText(d) {
   const wd = new Date(d + 'T12:00').toLocaleDateString('de-DE', { weekday: 'short', day: 'numeric', month: 'numeric' });
   return wd + ': ' + team().map(p => {
@@ -1383,7 +1431,7 @@ function trainSheet() {
   return `
     <div class="overlay sheet-wrap" data-act="closesheet">
       <div class="ov-card sheet" data-stop="1">
-        <div class="sheet-head"><h2>Was hast du gemacht?</h2><button class="btn small" data-act="closesheet">✕</button></div>
+        <div class="sheet-head"><h2>${backfillDay ? `Nachtragen: ${fmtWeekday(backfillDay)}` : 'Was hast du gemacht?'}</h2><button class="btn small" data-act="closesheet">✕</button></div>
         ${ACTIVITIES.map(a => actRow(p, a)).join('')}
         <div class="health-row"><small>Heute gut geschlafen, gesund gegessen, genug getrunken? Je +5 % Schaden</small>
           <div class="health">${HEALTH_NOW.map(h => { const done = healthToday(p).includes(h.id);
@@ -1672,7 +1720,7 @@ function viewProfil() {
     if (e.kind === 'train') {
       const c = e.course && byId(COURSES, e.course);
       const what = c ? `${c.icon} Kurs: ${c.name}` : e.parts ? partsOf(e).map(x => `${actOf(x.id).icon} ${x.n}× ${actOf(x.id).name}`).join(' · ') : `${actOf(e.id).icon} ${actOf(e.id).name}`;
-      return `${what}${e.min ? ` · ${e.min} Min.` : ''} <span class="muted">−${num(e.dmg)}${e.pr ? ' 🏆' : ''}${e.crit ? ' 🎯' : ''}</span>`;
+      return `${what}${e.min ? ` · ${e.min} Min.` : ''} <span class="muted">−${num(e.dmg)}${e.pr ? ' 🏆' : ''}${e.crit ? ' 🎯' : ''}${e.added ? ` · 📅 nachgetragen für ${fmtDay(e.day)}` : ''}</span>`;
     }
     const h = byId(HEALTH, e.id) || { icon: '✓', name: 'Eintrag' };
     return `${h.icon} ${h.name}`;
@@ -1695,7 +1743,7 @@ function viewProfil() {
     <h2>Verlauf</h2>
     <div class="card list">${p.log.length ? p.log.slice(0, 30).map(e => `<div class="row log"><span>${line(e)}</span><small>${fmtTime(e.t)}</small></div>`).join('')
       : '<div class="row muted">Noch nichts eingetragen – ab ins Gym! 💪</div>'}</div>
-    ${p.log.length && p.log[0].day === todayStr() ? '<button class="btn" data-act="undo">↩️ Letzten Eintrag rückgängig</button>' : ''}
+    ${p.log.length && (p.log[0].day === todayStr() || p.log[0].added === todayStr()) ? '<button class="btn" data-act="undo">↩️ Letzten Eintrag rückgängig</button>' : ''}
 
     <h2>Einstellungen</h2>
     <div class="card list">
@@ -1848,8 +1896,8 @@ function render() {
   document.getElementById('view').innerHTML = VIEWS[tab]();
   const ov = document.getElementById('overlay');
   if (statsOf && !state.players[statsOf]) statsOf = null;
-  const kind = pending ? 'swing' : hitShow ? 'hit' : reveal ? 'reveal' : sheetOpen ? 'menu' : goalOpen ? 'goal' : statsOf ? 'stats' : '';
-  const html = pending ? swingOverlay() : hitShow ? hitOverlay() : reveal ? revealOverlay() : sheetOpen ? trainSheet() : goalOpen ? goalEditor() : statsOf ? statsSheet() : '';
+  const kind = pending ? 'swing' : hitShow ? 'hit' : reveal ? 'reveal' : sheetOpen ? 'menu' : goalOpen ? 'goal' : statsOf ? 'stats' : dayOpen ? 'day' : '';
+  const html = pending ? swingOverlay() : hitShow ? hitOverlay() : reveal ? revealOverlay() : sheetOpen ? (backfillDay ? withDay(backfillDay, trainSheet) : trainSheet()) : goalOpen ? goalEditor() : statsOf ? statsSheet() : dayOpen ? daySheet() : '';
   const card = ov.querySelector('.ov-card');
   if ((kind === 'menu' || kind === 'goal' || kind === 'stats') && ov.dataset.kind === kind && card) {
     // Menü bleibt offen: nur den Inhalt austauschen, damit nichts flackert oder neu aufgeht
@@ -1858,7 +1906,7 @@ function render() {
     card.innerHTML = tmp.querySelector('.ov-card').innerHTML;
   } else ov.innerHTML = html;
   ov.dataset.kind = kind;
-  document.body.classList.toggle('ov-open', !!(pending || hitShow || reveal || sheetOpen || goalOpen || statsOf));
+  document.body.classList.toggle('ov-open', !!(pending || hitShow || reveal || sheetOpen || goalOpen || statsOf || dayOpen));
 }
 
 const toastQueue = [];

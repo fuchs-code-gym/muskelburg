@@ -600,3 +600,11 @@ b.who-link { text-decoration: underline dotted; text-underline-offset: 3px; }
 .cal-day.goal { border-color: var(--bad); }
 .cal-day.goal .dots { font-size: 11px; line-height: 1; }
 .cal { margin-top: 0; }
+
+/* Tages-Fenster im Kalender */
+.day-row { padding: 10px 0; border-bottom: 1px solid var(--line); }
+.day-row:last-of-type { border-bottom: 0; margin-bottom: 8px; }
+.day-who { display: flex; align-items: center; gap: 7px; }
+.day-who i { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
+.day-who small { margin-left: auto; font-weight: 700; }
+.day-what { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 4px 0 0 17px; font-size: 14px; }
