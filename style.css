@@ -656,3 +656,9 @@ b.who-link { text-decoration: underline dotted; text-underline-offset: 3px; }
 .held-entry .chev, .gear-new .chev { font-size: 1.3em; opacity: .6; }
 .gear-new { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer; }
 .gear-new > span:nth-child(2) { flex: 1; }
+
+/* v45: Einträge löschen */
+.my-entries { margin: 8px 0 0 17px; font-size: 14px; }
+.my-entries summary { cursor: pointer; color: var(--muted); font-size: 13px; }
+.entry-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line); }
+.entry-row small { color: var(--muted); margin-left: 4px; }

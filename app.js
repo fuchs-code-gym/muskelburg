@@ -1241,6 +1241,35 @@ function undo() {
   const p = me();
   const e = p.log[0];
   if (!e || !['train', 'health'].includes(e.kind) || (e.day !== todayStr() && e.added !== todayStr()) || !confirm('Letzten Eintrag rückgängig machen?')) return;
+  revertEntry(p, e);
+  p.log.shift();
+  save();
+  render();
+}
+
+// Eigene Einträge der letzten Tage löschen (Kalender → Tag). Danach kann man neu eintragen.
+const canEditDay = d => !state.season.result && d <= todayStr() && d >= state.season.start && d >= addDays(todayStr(), -BACKFILL_DAYS);
+function deleteEntry(t) {
+  const p = me(), e = p.log.find(x => String(x.t) === String(t));
+  if (!e || !['train', 'health'].includes(e.kind) || !canEditDay(e.day)) return;
+  if (!confirm(e.kind === 'train' ? 'Diesen Trainings-Eintrag löschen? Schaden und Werte werden abgezogen – danach kannst du ihn richtig neu eintragen.' : 'Diesen Haken löschen?')) return;
+  // War es das erste Training des Tages und es gibt noch weitere? Dann übernimmt das nächste die Tages-Belohnung (Spind, Energie, Trainingstag).
+  if (e.kind === 'train' && e.firstToday) {
+    const next = p.log.filter(x => x !== e && x.kind === 'train' && x.day === e.day).sort((x, y) => x.t - y.t)[0];
+    if (next) {
+      next.firstToday = true; next.energy = (next.energy || 0) + (e.energy || 0); e.energy = 0;
+      if (e.item && !next.item) { next.item = e.item; e.item = null; }
+      e.firstToday = false;
+    }
+  }
+  revertEntry(p, e);
+  p.log = p.log.filter(x => x !== e);
+  save();
+  toast('🗑️ Eintrag gelöscht');
+  render();
+}
+
+function revertEntry(p, e) {
   if (e.kind === 'train') {
     const L = p.life;
     p.dmg[e.day] = Math.max(0, (p.dmg[e.day] || 0) - e.dmg - (e.goalBonus || 0));
@@ -1261,9 +1290,6 @@ function undo() {
       autoEquip(p);
     }
   }
-  p.log.shift();
-  save();
-  render();
 }
 
 function setPact() {
@@ -1467,6 +1493,7 @@ const actions = {
   calfold: () => { calFold = !calFold; render(); },
   calday: d => { dayOpen = d; render(); },
   closeday: () => { dayOpen = null; render(); },
+  delentry: deleteEntry,
   backfill: d => { if (!canBackfill(d)) return; backfillDay = d; dayOpen = null; menu = {}; sheetOpen = true; render(); },
   bossfold: () => { bossFold = !bossFold; render(); },
   fold: k => { openFolds.has(k) ? openFolds.delete(k) : openFolds.add(k); render(); },
@@ -1745,6 +1772,16 @@ const trainedOn = (p, d) => p.log.some(e => e.kind === 'train' && e.day === d) |
 const isHealDay = d => d >= state.season.start && d < todayStr() && d < seasonEnd() && !Object.values(state.players).some(p => dayDmg(p, d) > 0);
 const healOn = d => Math.round(BOSS_REGEN * chapterF() * teamOn(d));
 const fmtWeekday = d => new Date(d + 'T12:00').toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'numeric' });
+function myEntries(p, d) {
+  const es = p.log.filter(e => (e.kind === 'train' || e.kind === 'health') && e.day === d).sort((x, y) => x.t - y.t);
+  if (!es.length) return '';
+  const what = e => e.kind === 'train'
+    ? partsOf(e).map(x => `${actOf(x.id).icon} ${actOf(x.id).name} ${x.min} Min.`).join(' + ') + ` <small>−${num(e.dmg || 0)}</small>`
+    : `${(byId(HEALTH, e.id) || {}).icon || '✓'} ${(byId(HEALTH, e.id) || {}).name || 'Haken'}`;
+  return `<details class="my-entries"><summary>✏️ Falsch eingetragen? Einträge löschen</summary>
+    ${es.map(e => `<div class="entry-row"><span>${what(e)}</span><button class="btn small ghost" data-act="delentry" data-arg="${e.t}">🗑️</button></div>`).join('')}
+    <small class="hint">Löschen zieht Schaden und Werte wieder ab. Danach einfach richtig neu eintragen.</small></details>`;
+}
 function daySheet() {
   const d = dayOpen, p0 = me();
   const rows = team().map(p => {
@@ -1759,7 +1796,8 @@ function daySheet() {
       : dmg ? '<span>trainiert</span>' : awayOn(p, d) ? `<span>${AWAY[awayOn(p, d).why].icon} ${AWAY[awayOn(p, d).why].name}</span>` : '<span class="muted">kein Training</span>';
     return `<div class="day-row"><div class="day-who"><i style="background:${PCOLOR[id]}"></i><b>${esc(p.name)}${p === p0 ? ' (du)' : ''}</b>
         ${dmg ? `<small>−${num(dmg)} Schaden</small>` : ''}</div>
-      <div class="day-what">${body}${hs ? `<span>${hs}</span>` : ''}${trains.some(e => e.added) ? '<small>📅 nachgetragen</small>' : ''}</div></div>`;
+      <div class="day-what">${body}${hs ? `<span>${hs}</span>` : ''}${trains.some(e => e.added) ? '<small>📅 nachgetragen</small>' : ''}</div>
+      ${p === p0 && canEditDay(d) ? myEntries(p, d) : ''}</div>`;
   }).join('');
   const bf = canBackfill(d);
   return `
