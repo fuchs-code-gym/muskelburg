@@ -2031,7 +2031,6 @@ function viewProfil() {
         <div class="row"><span>♻️ Meine Daten zurücksetzen</span><button class="btn small" data-act="resetmine">Zurücksetzen</button></div>
         ${game.me === 'a' ? '<div class="row"><span>🗑️ Spiel für alle löschen <small>(nur Spiel-Ersteller)</small></span><button class="btn small danger" data-act="deletegame">Löschen</button></div>' : ''}`
       : '<div class="row"><span>📴 Nur auf diesem Gerät</span><button class="btn small" data-act="leave">Online spielen</button></div>'}
-      <div class="row"><span>🏰 Altes Dorf-Spiel</span><a class="btn small" href="dorf/">Archiv</a></div>
     </div>
     <button class="btn danger" data-act="reset">Spiel zurücksetzen</button>`;
 }
