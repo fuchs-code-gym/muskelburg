@@ -533,3 +533,21 @@ b.who-link { text-decoration: underline dotted; text-underline-offset: 3px; }
 .players:has(.pchip:nth-child(4)) .pchip b { font-size: 13px; }
 .players:has(.pchip:nth-child(4)) .pchip small { font-size: 11px; }
 .reset-hero { display: block; margin: 14px auto 0; }
+
+/* ---------- Übersichtlicher: Aufklapp-Bereiche ---------- */
+.goal-toggle { width: 100%; background: none; border: 0; padding: 0; text-align: left; }
+.goal-mini { flex: 1; display: flex; gap: 4px; flex-wrap: wrap; justify-content: flex-end; }
+.goal-mini i { width: 12px; height: 12px; border-radius: 4px; border: 2px solid var(--line); }
+.goal-mini i.on { background: var(--accent); border-color: var(--accent); }
+.chev { color: var(--muted); font-size: 14px; flex-shrink: 0; }
+.goal-foot { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.goal-foot .btn { flex-shrink: 0; }
+.more-btn { margin-left: auto; background: none; border: 0; padding: 4px 0; font-size: 12.5px; font-weight: 700; color: var(--muted); }
+.health-row { margin: 4px 0 10px; }
+.health-row small { display: block; color: var(--muted); margin-bottom: 6px; }
+.fold { margin-top: 10px; }
+.fold-head { width: 100%; display: flex; align-items: center; justify-content: space-between; gap: 10px; text-align: left;
+  background: var(--surface); border: 1px solid var(--line); border-radius: 14px; padding: 13px 14px; }
+.fold-head h2 { margin: 0; flex: 1; }
+.fold.open .fold-head { border-radius: 14px 14px 0 0; background: var(--surface-2); }
+.fold-body { padding: 10px 0 4px; }

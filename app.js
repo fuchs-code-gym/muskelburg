@@ -12,6 +12,10 @@ const STATS = {
   mind: { name: 'Geist',    icon: '🧠', color: '#8e6bd8' },
 };
 const BASE_STAT = 10;
+// Werte-Bonus auf den Schaden flacht ab: 10 → +7 %, 50 → +23 %, 100 → +31 %, 300 → +42 %, nie mehr als +50 %.
+// So bleibt es fair zwischen alten Hasen und Neuen.
+const STAT_CAP = 0.5, STAT_HALF = 60;
+const statBonus = v => STAT_CAP * v / (v + STAT_HALF);
 
 // Training in Zeitblöcken: type = Schadensart, base = Grundschaden je Block, gives = Wertepunkte je Block
 const ACTIVITIES = [
@@ -32,12 +36,14 @@ const COURSES = [
   { id: 'ruecken', name: 'Rücken', icon: '🦴' }, { id: 'spinning', name: 'Spinning', icon: '🚲' },
   { id: 'sonstiges', name: 'Sonstiges', icon: '✨' },
 ];
-// früheres „Gesund gelebt“ – nur noch, damit alte Einträge im Verlauf lesbar bleiben
+// Gesund gelebt: je +5 % Schaden auf die Trainings des Tages („Gesund gegessen“ gibt es nicht mehr – nur noch für alte Einträge)
 const HEALTH = [
   { id: 'schlaf', name: 'Gut geschlafen', icon: '😴' },
   { id: 'essen',  name: 'Gesund gegessen', icon: '🥗' },
   { id: 'wasser', name: 'Genug getrunken', icon: '💧' },
 ];
+const HEALTH_NOW = HEALTH.filter(h => h.id !== 'essen');
+const HEALTH_BONUS = 0.05;
 
 // Schaden
 const PR_MULT = 2.5;          // Neuer Rekord (Gewicht erhöht) = Volltreffer, 1× am Tag
@@ -168,6 +174,8 @@ function newHero(name) {
     life: newLife(), log: [], reports: [], outgoing: [], incoming: [],
     cheer: null, cheerSent: null, claimed: {}, resetId: null, updatedAt: 0,
     goal: null,           // Wochenziel, z. B. { kraft: 3, puls: 2, ausgleich: 1 }
+    goalNext: null,       // gesenktes Ziel, das erst ab nächster Woche gilt: { from, goal }
+    joined: null,         // Beitrittstag (leer = von Anfang an dabei)
   };
 }
 
@@ -181,6 +189,19 @@ const goalOf = (p, id) => (p.goal && p.goal[id]) || 0;
 function goalTotal(p) { return sum(ACTIVITIES.map(a => goalOf(p, a.id))); }
 function goalDone(p) { return sum(ACTIVITIES.map(a => Math.min(goalOf(p, a.id), weekSessions(p, a.id)))); }
 const goalReached = p => goalTotal(p) > 0 && goalDone(p) >= goalTotal(p);
+// Ziel ändern: Erhöhen geht immer. Senken gilt erst ab nächster Woche, sobald in dieser Woche trainiert wurde.
+function setGoal(p, draft) {
+  const cur = p.goal, wk = weekKey();
+  const lowers = cur && ACTIVITIES.some(a => (draft[a.id] || 0) < (cur[a.id] || 0));
+  if (!lowers || !p.log.some(e => e.kind === 'train' && e.day >= wk)) {
+    p.goal = { ...draft }; p.goalNext = null;
+    return `🎯 Wochenziel: ${goalTotal(p)}× pro Woche`;
+  }
+  const now = {};
+  for (const a of ACTIVITIES) now[a.id] = Math.max(draft[a.id] || 0, cur[a.id] || 0);
+  p.goal = now; p.goalNext = { from: addDays(wk, 7), goal: { ...draft } };
+  return '🔒 Senken gilt ab nächster Woche – diese Woche hast du schon trainiert';
+}
 function freshState() {
   return {
     v: 1, current: 'a', players: Object.fromEntries(PIDS.map(id => [id, newHero(defaultName(id))])),
@@ -235,6 +256,9 @@ let prOn = false;         // „Neuer Rekord“ angehakt
 let sheetOpen = false;    // Auswahlfenster „Training eintragen“
 let menu = {};            // im Menü gewählte Einheiten, z. B. { kraft: 2, puls: 1 }
 let goalOpen = false, goalDraft = {};
+let bossFold = true;      // Einsatz & Regeln auf der Jagd-Seite eingeklappt
+const openFolds = new Set(['f2']); // aufgeklappte Abschnitte unter „Mehr“
+let goalFold = true;      // Wochenziel-Karte eingeklappt
 let statsOf = null;       // Statistik-Fenster für diesen Spieler (id)
 const me = () => state.players[state.current];
 
@@ -253,7 +277,13 @@ const mine = () => ownIds().map(id => state.players[id]);
 // Wer spielt mit? Online zählen nur Plätze, die jemand übernommen hat
 const team = () => PIDS.filter(id => state.players[id] && (!online() || id === game.me || state.players[id].updatedAt)).map(id => state.players[id]);
 const othersOf = p => team().filter(x => x !== p);
-const teamF = () => Math.max(1, team().length / 2); // Schweinehund wächst mit dem Team
+// Späteinsteiger zählen nur anteilig für die restlichen Tage der Jagd
+function shareOf(p) {
+  const len = daysBetween(state.season.start, seasonEnd());
+  if (!p.joined || p.joined <= state.season.start || len <= 0) return 1;
+  return Math.max(0, Math.min(1, daysBetween(p.joined, seasonEnd()) / len));
+}
+const teamF = () => Math.max(1, sum(team().map(shareOf)) / 2); // Schweinehund wächst mit dem Team
 let sparTarget = null;    // Sparring-Gegner
 function sparOpp(p) {
   const os = othersOf(p);
@@ -385,19 +415,37 @@ async function codeOk() {
   return false;
 }
 
-// Einsatz: Fällt der Schweinehund nicht, gibt der mit weniger Schaden etwas aus
+// Einsatz: Fällt der Schweinehund nicht, zahlt, wer sein eigenes Wochenziel am deutlichsten verfehlt hat
+// (bei Gleichstand: wer weniger Schaden gemacht hat). Kein Ziel festgelegt = 0 %.
 const STAKES = ['🥙 Döner', '🥤 Protein-Shake', '☕ Kaffee', '🍦 Eis'];
 let setupStake = STAKES[0];
+// gewertete Wochen: mindestens 4 Tage in der Jagd und schon vorbei (oder Jagd beendet)
+function seasonWeeks() {
+  const out = [], end = seasonEnd();
+  for (let wk = weekKey(new Date(state.season.start + 'T12:00')); wk < end; wk = addDays(wk, 7)) {
+    const from = wk > state.season.start ? wk : state.season.start, to = addDays(wk, 7) < end ? addDays(wk, 7) : end;
+    if (daysBetween(from, to) >= 4 && (addDays(wk, 7) <= todayStr() || state.season.result)) out.push(wk);
+  }
+  return out;
+}
+// Anteil der geschafften Ziel-Trainings über die gewerteten Wochen (0…1), null = noch keine Woche gewertet
+function goalRate(p) {
+  const wks = seasonWeeks();
+  if (!wks.length) return null;
+  const total = goalTotal(p);
+  if (!total) return 0;
+  return sum(wks.map(wk => sum(ACTIVITIES.map(a => Math.min(goalOf(p, a.id), weekSessions(p, a.id, wk)))))) / (total * wks.length);
+}
 function stakeLoser() {
   const ps = team();
-  if (ps.length < 2) return null;
-  const sorted = [...ps].sort((x, y) => seasonDamage(y) - seasonDamage(x));
-  const top = sorted[0], low = sorted[sorted.length - 1];
-  if (seasonDamage(top) === seasonDamage(low)) return null;
+  if (ps.length < 2 || !seasonWeeks().length) return null;
+  const sorted = [...ps].sort((x, y) => goalRate(x) - goalRate(y) || seasonDamage(x) - seasonDamage(y));
+  const low = sorted[0], top = sorted[sorted.length - 1];
+  if (goalRate(top) === goalRate(low) && seasonDamage(top) === seasonDamage(low)) return null;
   return { payer: low, winner: top };
 }
 function setStake() {
-  const v = prompt('Euer Einsatz: Was gibt der mit dem wenigsten Schaden aus, wenn der Schweinehund überlebt? (z. B. 🥙 Döner, 🥤 Protein-Shake)', state.stake || '');
+  const v = prompt('Euer Einsatz: Was gibt aus, wer sein Wochenziel am deutlichsten verfehlt, wenn der Schweinehund überlebt? (z. B. 🥙 Döner, 🥤 Protein-Shake)', state.stake || '');
   if (v === null) return;
   state.stake = v.trim().slice(0, 60);
   metaSet({ stake: state.stake });
@@ -436,7 +484,7 @@ async function joinGame(pid) {
   state.current = pid;
   state.outbox = [];
   if (snap && snap.meta) Object.assign(state, normalizeMeta(snap.meta));
-  state.players[pid] = existing ? normalizeHero(existing) : normalizeHero({ name });
+  state.players[pid] = existing ? normalizeHero(existing) : normalizeHero({ name, joined: todayStr() });
   for (const o of PIDS) {
     if (o !== pid) state.players[o] = otherFromRemote(snap && snap.players && snap.players[o], defaultName(o));
   }
@@ -503,6 +551,7 @@ const hasTalent = (p, stat, at) => p.stats[stat] >= at;
 // ein Eintrag kann mehrere Einheiten enthalten (z. B. 2× Kraft + 1× Ausdauer)
 const partsOf = e => e.parts ? asList(e.parts) : [{ id: e.id, n: 1, min: e.min || 10 }];
 function minutesToday(p, id) { return sum(p.log.filter(e => e.kind === 'train' && e.day === todayStr()).flatMap(partsOf).filter(x => !id || x.id === id).map(x => x.min)); }
+function healthToday(p) { return p.log.filter(e => e.kind === 'health' && e.day === todayStr() && HEALTH_NOW.some(h => h.id === e.id)).map(e => e.id); }
 function prToday(p) { return p.log.some(e => e.kind === 'train' && e.pr && e.day === todayStr()); }
 
 // Combo: Trainingstage in den letzten 7 Tagen (Ruhetage sind erlaubt und brechen nichts)
@@ -613,6 +662,7 @@ function resolveAll() {
     changed = claimRewards(p) || changed;
     changed = expireDuels(p) || changed;
     if (p.cheer && p.cheer.until < Date.now()) { p.cheer = null; changed = true; }
+    if (p.goalNext && weekKey() >= p.goalNext.from) { p.goal = p.goalNext.goal; p.goalNext = null; changed = true; }
   }
   if (changed) save();
   return changed;
@@ -678,7 +728,7 @@ function critChance(p) {
 function damageOf(p, a, { pr = false, timing = 1, crit = false, min = a.step, offset = 0 } = {}) {
   const mults = [];
   const n = Math.max(1, Math.round(min / a.step)); // Anzahl Blöcke
-  let dmg = n * a.base * (1 + p.stats[a.type] / 100);
+  let dmg = n * a.base * (1 + statBonus(p.stats[a.type]));
   const add = (label, f) => { if (f !== 1) { mults.push({ label, f }); dmg *= f; } };
   add('Ausrüstung', 1 + gearBonus(p, a.type));
   if (a.type === 'str' && hasTalent(p, 'str', 25)) add('Wuchtschlag', 1.15);
@@ -691,6 +741,7 @@ function damageOf(p, a, { pr = false, timing = 1, crit = false, min = a.step, of
   if (p.cheer) add('Angefeuert', CHEER_MULT);
   const best = Math.max(0, ...othersOf(p).map(seasonDamage));
   if (best > 500 && seasonDamage(p) < 0.6 * best) add('Comeback', COMEBACK_MULT);
+  add('Gesund gelebt', 1 + HEALTH_BONUS * healthToday(p).length);
   const done = minutesToday(p) + offset;
   let fall = 0;
   for (let m = 0; m < min; m += 5) fall += falloffAt(done + m);
@@ -766,7 +817,7 @@ function doTrain(pend, timing, grade) {
   const firstToday = !p.dmg[todayStr()];
   p.dmg[todayStr()] = (p.dmg[todayStr()] || 0) + dmg;
   p.xp += sum(got);
-  const energy = Math.min(1, ENERGY_MAX - p.energy);
+  const energy = firstToday ? Math.min(1, ENERGY_MAX - p.energy) : 0; // Spind und Energie: 1× am Tag
   p.energy += energy;
   L.sessions++;
   if (firstToday) L.days++;
@@ -774,9 +825,9 @@ function doTrain(pend, timing, grade) {
   L.bestCombo = Math.max(L.bestCombo, comboDays(p));
   const usedCheer = !!p.cheer;
   p.cheer = null;
-  const item = dropLoot(p, 0);
+  const item = firstToday ? dropLoot(p, 0) : null;
   p.log.unshift({ t: Date.now(), day: todayStr(), kind: 'train', id: a.id, parts: logParts, min, dmg, got, energy, pr, crit, firstToday,
-    usedCheer, item: item.uid, mults });
+    usedCheer, item: item ? item.uid : null, mults });
   p.log.length = Math.min(p.log.length, 200);
   const gk = 'g' + weekKey();
   if (goalReached(p) && !p.claimed[gk]) {
@@ -794,6 +845,15 @@ function doTrain(pend, timing, grade) {
   const badges = earnedBadges(L);
   if (badges.length > before.badges) toast(`${badges[badges.length - 1].icon} Abzeichen: ${badges[badges.length - 1].name}!`, true);
   for (const t of TALENTS) if (p.stats[t.stat] >= t.at && before.stats[t.stat] < t.at) toast(`${t.icon} Talent freigeschaltet: ${t.name}!`, true);
+  render();
+}
+
+function health(id) {
+  const p = me();
+  if (healthToday(p).includes(id)) return;
+  p.log.unshift({ t: Date.now(), day: todayStr(), kind: 'health', id });
+  save();
+  toast(`${byId(HEALTH, id).icon} +5 % Schaden auf deine Trainings heute`);
   render();
 }
 
@@ -897,7 +957,7 @@ function resetHero(id = state.current) {
   const p = state.players[id], mineOne = ownIds().includes(id);
   if (!mineOne && !(sync && connected)) { toast('Dafür musst du online sein'); return; }
   if (!confirm(`Daten von ${p.name} zurücksetzen?\n\n${p.name} startet bei null: Training, Schaden, Ausrüstung, Werte. Alle anderen behalten alles.`)) return;
-  const fresh = normalizeHero({ name: p.name, goal: p.goal, resetId: state.resetId });
+  const fresh = normalizeHero({ name: p.name, goal: p.goal, goalNext: p.goalNext, joined: p.joined, resetId: state.resetId });
   state.players[id] = fresh;
   statsOf = null;
   if (mineOne) save();
@@ -997,7 +1057,7 @@ function sendDuel() {
     bookDuel(p, { win: !res.attWin, opp: d.fromName, rounds: res.rounds, mineAtt: false });
     sendEvent(d.from, { kind: 'result', result: res });
   } else {
-    if (p.energy < 1) { toast('⚡ Keine Energie – jedes Training lädt 1 ⚡'); return; }
+    if (p.energy < 1) { toast('⚡ Keine Energie – das erste Training des Tages lädt 1 ⚡'); return; }
     const other = sparOpp(p);
     if (!other) return;
     const d = { id: rid() + rid(), from: idOf(p), to: idOf(other), fromName: p.name, toName: other.name, tactics: [...duelPick],
@@ -1013,7 +1073,7 @@ function sendDuel() {
 }
 
 const actions = {
-  train: startTrain, strike: () => strike(false), skip: () => strike(true), cheer, equip, scrap, undo, rename, reset,
+  train: startTrain, strike: () => strike(false), skip: () => strike(true), health, cheer, equip, scrap, undo, rename, reset,
   newSeason, pact: setPact, stake: setStake,
   pickstake: s => { if (s === 'eigen') { const v = prompt('Euer Einsatz (z. B. 🍕 Pizza):', ''); if (!v || !v.trim()) return; setupStake = v.trim().slice(0, 60); } else setupStake = s; render(); },
   pr: () => { prOn = !prOn; render(); },
@@ -1037,7 +1097,10 @@ const actions = {
   goaledit: () => { goalDraft = { ...(me().goal || { kraft: 2, puls: 1, ausgleich: 1 }) }; goalOpen = true; render(); },
   goalstep: arg => { const [id, d] = arg.split(':'); goalDraft[id] = Math.max(0, Math.min(7, (goalDraft[id] || 0) + Number(d))); render(); },
   goalcancel: () => { goalOpen = false; render(); },
-  goalsave: () => { const p = me(); p.goal = { ...goalDraft }; goalOpen = false; save(); toast(`🎯 Wochenziel: ${goalTotal(p)}× pro Woche`); render(); },
+  goalsave: () => { const p = me(); const msg = setGoal(p, goalDraft); goalOpen = false; save(); toast(msg, true); render(); },
+  goalfold: () => { goalFold = !goalFold; render(); },
+  bossfold: () => { bossFold = !bossFold; render(); },
+  fold: k => { openFolds.has(k) ? openFolds.delete(k) : openFolds.add(k); render(); },
   sparwith: id => { sparTarget = id; render(); },
   closesheet: () => { sheetOpen = false; render(); },
   stats: id => { statsOf = id; render(); },
@@ -1210,14 +1273,16 @@ function viewJagd() {
       </div>
       ${bossSvg(pct, state.season.chapter)}
       <div class="hpbar"><i style="width:${pct * 100}%"></i></div>
-      <small class="boss-info">${res ? (res.won ? '🎉 Besiegt! Unter „Mehr“ startet die nächste Jagd.' : '😤 Er hat überlebt … Unter „Mehr“ startet die Revanche.')
-        : `💤 Heilt sich um ${num(b.regen)} an jedem Tag, an dem keiner trainiert.`}</small>
+      ${res ? `<small class="boss-info">${res.won ? '🎉 Besiegt! Unter „Mehr“ startet die nächste Jagd.' : '😤 Er hat überlebt … Unter „Mehr“ startet die Revanche.'}</small>` : ''}
+      <div class="monline ${mon.hp <= 0 ? 'down' : ''}">${mon.icon} <b>${mon.name}</b>
+        <span>${mon.hp <= 0 ? '✓ besiegt' : `Wochenmonster · noch ${num(mon.hp)}`}</span>
+        <button class="more-btn" data-act="bossfold">${bossFold ? 'Einsatz & Regeln ▾' : 'weniger ▴'}</button></div>
+      ${bossFold ? '' : `
       <div class="bet" data-act="bet">
         <span>🏆 <b>Sieg:</b> ${state.pact ? esc(state.pact) : '<i>festlegen …</i>'}</span>
-        <span>😬 <b>Niederlage:</b> ${state.stake ? `${sl ? esc(sl.payer.name) : 'der Faulere'} zahlt ${esc(state.stake)}` : '<i>festlegen …</i>'}</span>
+        <span>😬 <b>Niederlage:</b> ${state.stake ? `${sl ? esc(sl.payer.name) : 'größter Ziel-Rückstand'} zahlt ${esc(state.stake)}` : '<i>festlegen …</i>'}</span>
       </div>
-      <div class="monline ${mon.hp <= 0 ? 'down' : ''}">${mon.icon} <b>${mon.name}</b>
-        <span>${mon.hp <= 0 ? '✓ besiegt' : `Wochenmonster · noch ${num(mon.hp)}`}</span></div>
+      <small class="boss-info">💤 Er heilt sich um ${num(b.regen)} an jedem Tag, an dem keiner trainiert.</small>`}
     </section>
 
     ${p.cheer ? `<section class="banner cheer">📣 <b>${esc(p.cheer.from)} feuert dich an!</b> Dein nächstes Training macht +25 % Schaden.</section>` : ''}
@@ -1238,9 +1303,13 @@ function goalCard(p, res) {
       <button class="btn primary" data-act="goaledit">🎯 Wochenziel festlegen</button>
       <button class="btn small ghost" data-act="sheet" ${res ? 'disabled' : ''}>oder einfach Training eintragen</button></section>`;
   }
-  return `<section class="card goalcard ${goalReached(p) ? 'reached' : ''}">
-      <div class="goal-top"><b>🎯 Wochenziel ${done}/${total}${goalReached(p) ? ' ✓ geschafft!' : ''}</b>
-        <button class="btn small ghost" data-act="goaledit">✏️ ändern</button></div>
+  const next = p.goalNext ? sum(Object.values(p.goalNext.goal)) : null;
+  return `<section class="card goalcard ${goalReached(p) ? 'reached' : ''} ${goalFold ? 'folded' : ''}">
+      <button class="goal-top goal-toggle" data-act="goalfold">
+        <b>🎯 Wochenziel ${done}/${total}${goalReached(p) ? ' ✓ geschafft!' : ''}</b>
+        <span class="goal-mini">${Array.from({ length: total }, (_, i) => `<i class="${i < done ? 'on' : ''}"></i>`).join('')}</span>
+        <span class="chev">${goalFold ? '▾' : '▴'}</span></button>
+      ${goalFold ? '' : `
       ${ACTIVITIES.map(a => {
         const g = goalOf(p, a.id), s = weekSessions(p, a.id);
         const boxes = Array.from({ length: Math.max(g, s) }, (_, i) => `<i class="${i < s ? 'on' : ''} ${i >= g ? 'extra' : ''}">${i < s ? '✓' : ''}</i>`).join('');
@@ -1248,8 +1317,9 @@ function goalCard(p, res) {
           <span class="act-icon">${a.icon}</span><span class="goal-name">${a.name}</span>
           <span class="boxes">${boxes || '<small>kein Ziel</small>'}</span><span class="go">＋</span></button>`;
       }).join('')}
+      <div class="goal-foot"><small class="hint">Pro Tag zählt jede Art einmal fürs Ziel${goalReached(p) ? ' · alles darüber gibt weiter vollen Schaden' : ` · geschafft = +${num(GOAL_BONUS * total)} Bonus-Schaden`}${next !== null ? ` · 🔒 ab nächster Woche: ${next}×` : ''}</small>
+        <button class="btn small ghost" data-act="goaledit">✏️ ändern</button></div>`}
       <button class="btn primary big train-btn" data-act="sheet" ${res ? 'disabled' : ''}>💪 Training eintragen</button>
-      <small class="hint">Pro Tag zählt jede Art einmal fürs Ziel${goalReached(p) ? ' · alles darüber gibt weiter vollen Schaden' : ` · geschafft = +${num(GOAL_BONUS * total)} Bonus-Schaden`}</small>
     </section>`;
 }
 
@@ -1263,6 +1333,9 @@ function trainSheet() {
       <div class="ov-card sheet" data-stop="1">
         <div class="sheet-head"><h2>Was hast du gemacht?</h2><button class="btn small" data-act="closesheet">✕</button></div>
         ${ACTIVITIES.map(a => actRow(p, a)).join('')}
+        <div class="health-row"><small>Heute außerdem · je +5 % Schaden</small>
+          <div class="health">${HEALTH_NOW.map(h => { const done = healthToday(p).includes(h.id);
+            return `<button class="chip-btn ${done ? 'done' : ''}" data-act="health" data-arg="${h.id}" ${done ? 'disabled' : ''}>${h.icon} ${h.name}${done ? ' ✓' : ''}</button>`; }).join('')}</div></div>
         <div class="prtoggle ${hasPr && prOn && !prToday(p) ? 'on' : ''} ${prToday(p) || !hasPr ? 'used' : ''}" ${hasPr && !prToday(p) ? 'data-act="pr"' : ''}>
           <span class="pr-box">${hasPr && prOn && !prToday(p) ? '✓' : ''}</span>
           <span class="bld-title"><b>🏆 Neuer Rekord / Gewicht erhöht</b><small>${prToday(p) ? 'Heute schon eingetragen – stark!' : hasPr ? 'Eine Kraft-Einheit zählt ×2,5 – 1× am Tag' : 'Nur mit Kraft – eine Einheit zählt dann ×2,5'}</small></span>
@@ -1297,7 +1370,7 @@ function statsSheet() {
         <div class="list">${ACTIVITIES.map(a => row(`${a.icon} ${a.name}`, `${weekSessions(p, a.id)}× · ${weekMinutes(p, a.id)} Min.${goalOf(p, a.id) ? ` <small>(Ziel ${goalOf(p, a.id)}×)</small>` : ''}`)).join('')}
           ${row('⚔️ Schaden', num(weekDamage(p)))}</div>
         <h3>Diese Jagd</h3>
-        <div class="list">${row('⚔️ Schaden', num(seasonDamage(p)))}${row('🔥 Trainingstage (letzte 7 Tage)', comboDays(p))}</div>
+        <div class="list">${row('⚔️ Schaden', num(seasonDamage(p)))}${row('🎯 Wochenziel erfüllt', goalRate(p) === null ? '– <small>(noch keine Woche gewertet)</small>' : Math.round(goalRate(p) * 100) + ' %')}${row('🔥 Trainingstage (letzte 7 Tage)', comboDays(p))}</div>
         <h3>Insgesamt</h3>
         <div class="list">
           ${row('🏋️ Trainings', L.sessions)}${row('📅 Trainingstage', L.days)}${row('🏆 Rekorde', L.prs)}
@@ -1315,7 +1388,7 @@ function goalEditor() {
     <div class="overlay sheet-wrap" data-act="goalcancel">
       <div class="ov-card sheet" data-stop="1">
         <div class="sheet-head"><h2>🎯 Dein Wochenziel</h2><button class="btn small" data-act="goalcancel">✕</button></div>
-        <p class="hint">Wie oft pro Woche? Realistisch ist besser als zu viel – fürs geschaffte Ziel gibt's den Bonus.</p>
+        <p class="hint">Wie oft pro Woche? Realistisch ist besser als zu viel – fürs geschaffte Ziel gibt's den Bonus. Erhöhen geht immer; Senken gilt erst ab nächster Woche, sobald du diese Woche trainiert hast.</p>
         ${ACTIVITIES.map(a => `<div class="actrow goaledit">
           <span class="act-icon">${a.icon}</span><span class="bld-title"><b>${a.name}</b><small>Tage pro Woche</small></span>
           <span class="stepper"><button class="chip-btn" data-act="goalstep" data-arg="${a.id}:-1">−</button>
@@ -1357,7 +1430,7 @@ function hitOverlay() {
         <div class="hpbar"><i class="drain" style="--from:${h.bossBefore / b.max * 100}%;--to:${h.boss / b.max * 100}%"></i></div>
         <small>${num(h.boss)} / ${num(b.max)} Lebenspunkte übrig${h.monKilled ? ' · 👹 Wochenmonster besiegt!' : ''}</small>
         ${h.pr || h.crit ? `<div class="mults">${h.pr ? '<span class="mult">🏆 Rekord-Volltreffer!</span>' : ''}${h.crit ? '<span class="mult">💥 Kritisch!</span>' : ''}</div>` : ''}
-        ${lootCard(h.item)}
+        ${h.item ? lootCard(h.item) : '<p class="hint">🔐 Dein Spind war heute schon offen – morgen gibt es neue Beute.</p>'}
         <button class="btn primary" data-act="closehit">Weiter 💪</button>
       </div>
     </div>`;
@@ -1430,7 +1503,7 @@ function viewSparring() {
     </section>
     ${p.outgoing.length ? p.outgoing.map(o => `<section class="card waiting"><b>⏳ Warte auf ${esc(o.toName)}</b><br><small>wird spätestens in <b data-eta="${o.deadline}">${fmtDur(o.deadline - Date.now())}</b> automatisch ausgetragen</small></section>`).join('')
       : `<button class="btn primary big" data-act="duel" ${p.energy < 1 ? 'disabled' : ''}>🥊 ${esc(other.name)} herausfordern (1 ⚡)</button>`}
-    <p class="hint">${p.energy ? `⚡ ${p.energy} Energie – ` : '⚡ Keine Energie – '}jedes Training lädt 1 ⚡. 3 Runden, jede Taktik schlägt eine andere. Wer gewinnt, bekommt seltene Beute.</p>
+    <p class="hint">${p.energy ? `⚡ ${p.energy} Energie – ` : '⚡ Keine Energie – '}das erste Training des Tages lädt 1 ⚡. 3 Runden, jede Taktik schlägt eine andere. Wer gewinnt, bekommt seltene Beute.</p>
     <div class="stats"><div><b>${L.wins}</b><small>Siege</small></div><div><b>${L.duels - L.wins}</b><small>Niederlagen</small></div>
       <div><b>${L.duels}</b><small>Sparrings</small></div><div><b>${Math.round(Math.min(0.2, L.duels * 0.01) * 100)} %</b><small>Erfahrung</small></div></div>
 
@@ -1486,7 +1559,7 @@ function reportCard(r, animate) {
 
 function stakeLine() {
   const sl = stakeLoser();
-  return `<div class="stake">${esc(state.stake)} <b>Einsatz:</b> Überlebt er, gibt der mit dem wenigsten Schaden dem Besten aus.
+  return `<div class="stake">${esc(state.stake)} <b>Einsatz:</b> Überlebt er, zahlt, wer sein Wochenziel am deutlichsten verfehlt.
     ${sl ? `<small>Stand jetzt zahlt: <b>${esc(sl.payer.name)}</b> 😬</small>` : ''}</div>`;
 }
 
@@ -1607,7 +1680,7 @@ function viewSetup() {
     const free = PIDS.find(pid => !taken.includes(pid));
     return `<section class="card setup">${bossSvg(1, 1)}<h2>Hilf bei der Jagd!</h2>
       <p>${taken.map(pid => esc(players[pid].name)).join(' und ')} ${taken.length > 1 ? 'jagen den inneren Schweinehund – und brauchen dich.' : 'jagt den inneren Schweinehund – und braucht dich.'}</p>
-      ${joinInfo.meta.stake ? `<div class="stake">${esc(joinInfo.meta.stake)} <b>Einsatz:</b> Überlebt er, gibt der mit dem wenigsten Schaden aus.</div>` : ''}
+      ${joinInfo.meta.stake ? `<div class="stake">${esc(joinInfo.meta.stake)} <b>Einsatz:</b> Überlebt er, zahlt, wer sein Wochenziel am deutlichsten verfehlt.</div>` : ''}
       <div class="slots">${PIDS.map((pid, i) => `<span class="${taken.includes(pid) ? 'on' : ''}">Platz ${i + 1}: <b>${taken.includes(pid) ? esc(players[pid].name) : 'frei'}</b></span>`).join('')}</div>
       ${free ? `${nameField}<button class="btn primary big" data-act="join" data-arg="${free}">Neu mitmachen</button>` : '<p class="hint">Das Team ist voll (3 Leute).</p>'}
       ${taken.length ? `<p class="hint">Du spielst schon mit und wechselst nur das Gerät?</p>
@@ -1618,7 +1691,7 @@ function viewSetup() {
       <h2>Jagt den inneren Schweinehund!</h2>
       <p>Er liegt auf dem Sofa und lacht euch aus. Jedes Training ist ein Treffer – und an jedem faulen Tag heilt er sich. Schafft ihr ihn in einem Monat?</p>
       <div class="stake-pick"><b>😬 Euer Einsatz</b>
-        <small>Überlebt der Schweinehund, gibt der mit dem wenigsten Schaden dem Besten aus:</small>
+        <small>Überlebt der Schweinehund, zahlt, wer sein eigenes Wochenziel am deutlichsten verfehlt:</small>
         <div class="course-chips">${[...new Set([...STAKES, setupStake])].map(s => `<button class="chip-btn ${s === setupStake ? 'on' : ''}" data-act="pickstake" data-arg="${esc(s)}">${esc(s)}</button>`).join('')}
           <button class="chip-btn" data-act="pickstake" data-arg="eigen">✏️ Eigener</button></div></div>
       ${nameField}
@@ -1639,7 +1712,7 @@ const INTRO = [
         <li>🎯 <b>Ziel:</b> rund ${(Math.round(BOSS_HP * 30 / BOSS_DAYS / 100) * 100).toLocaleString('de-DE')} Lebenspunkte (je weitere Person +50 %) in <b>einem Monat</b> runterprügeln.</li>
         <li>😴 An jedem Tag, an dem <b>keiner</b> trainiert, heilt er sich.</li>
         <li>🏆 Geschafft? Dann kommt Kapitel 2 – mit einem stärkeren Schweinehund.</li>
-        <li>😬 Nicht geschafft? Dann gibt der mit dem wenigsten Schaden dem Besten den <b>Einsatz</b> aus – z. B. einen 🥙 Döner.</li>
+        <li>😬 Nicht geschafft? Dann zahlt, wer sein <b>eigenes Wochenziel</b> am deutlichsten verfehlt hat, den <b>Einsatz</b> – z. B. einen 🥙 Döner. So zählt Verlässlichkeit, nicht wer am stärksten ist.</li>
       </ul>` },
   { pic: () => '<div class="intro-icon">👊</div>', title: 'Jedes Training ist ein Treffer',
     body: `<ol class="intro-steps">
@@ -1648,10 +1721,10 @@ const INTRO = [
         <li><b>Zuschlagen:</b> Ein Balken pendelt – triff die Mitte für bis zu +30 % Schaden. Oder ohne Minispiel eintragen.</li>
         <li>Der Schweinehund steckt ein, seine Lebensleiste sinkt.</li>
       </ol>
-      <p class="hint">Mehr Schaden gibt es für: 🏆 neuen Rekord (Gewicht gesteigert, 1× am Tag), 🔥 regelmäßiges Training (Combo), 📣 Anfeuern vom Partner.</p>` },
+      <p class="hint">Mehr Schaden gibt es für: 🏆 neuen Rekord (Gewicht gesteigert, 1× am Tag), 🔥 regelmäßiges Training (Combo), 😴 gut geschlafen & 💧 genug getrunken, 📣 Anfeuern vom Partner.</p>` },
   { pic: () => '<div class="intro-icon">🎁</div>', title: 'Beute & dein Held',
     body: `<ul class="intro-list">
-        <li>🔐 Nach jedem Training öffnet sich dein <b>Spind</b> mit zufälliger Ausrüstung – von gewöhnlich bis <b style="color:#f5b81c">legendär</b>.</li>
+        <li>🔐 Beim ersten Training des Tages öffnet sich dein <b>Spind</b> mit zufälliger Ausrüstung – von gewöhnlich bis <b style="color:#f5b81c">legendär</b>.</li>
         <li>🦾 Bessere Teile legt dein Held automatisch an – sie machen dich stärker.</li>
         <li>💪 Training steigert Kraft, Ausdauer und Geist und schaltet <b>Talente</b> frei.</li>
         <li>👹 Jede Woche taucht ein <b>Ausreden-Monster</b> auf – wer es erledigt, bekommt epische Beute.</li>
@@ -1681,7 +1754,15 @@ function viewIntro() {
     </section>`;
 }
 
-const VIEWS = { jagd: viewJagd, held: viewHeld, sparring: viewSparring, mehr: () => viewSaison() + viewProfil() };
+function viewMehr() {
+  return (viewSaison() + viewProfil()).split(/(?=<h2>)/).map((part, i) => {
+    const m = part.match(/^<h2>([\s\S]*?)<\/h2>([\s\S]*)$/);
+    if (!m) return part;
+    const key = 'f' + i, open = openFolds.has(key);
+    return `<section class="fold ${open ? 'open' : ''}"><button class="fold-head" data-act="fold" data-arg="${key}"><h2>${m[1]}</h2><span class="chev">${open ? '▴' : '▾'}</span></button>${open ? `<div class="fold-body">${m[2]}</div>` : ''}</section>`;
+  }).join('');
+}
+const VIEWS = { jagd: viewJagd, held: viewHeld, sparring: viewSparring, mehr: viewMehr };
 
 function render() {
   const setup = !game || joinId || setupStep;
