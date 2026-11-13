@@ -608,3 +608,8 @@ b.who-link { text-decoration: underline dotted; text-underline-offset: 3px; }
 .day-who i { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
 .day-who small { margin-left: auto; font-weight: 700; }
 .day-what { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 4px 0 0 17px; font-size: 14px; }
+/* Heiltage im Kalender */
+.cal-day.heal { background: color-mix(in srgb, var(--bad) 14%, var(--surface)); border-color: color-mix(in srgb, var(--bad) 45%, var(--line)); }
+.cal-day.heal em { font-style: normal; font-size: 9.5px; font-weight: 800; color: var(--bad); line-height: 1; }
+.heal-key { color: var(--bad); font-weight: 800; }
+.heal-banner { border-left: 4px solid var(--bad); }

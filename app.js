@@ -1358,6 +1358,8 @@ function viewJagd() {
 const PCOLOR = { a: '#2f6fed', b: '#8e6bd8', c: '#0fa3a3', d: '#e0559b' };
 const fmtDay = d => new Date(d + 'T12:00').toLocaleDateString('de-DE', { day: 'numeric', month: 'numeric' });
 const trainedOn = (p, d) => p.log.some(e => e.kind === 'train' && e.day === d) || (p.dmg[d] || 0) > 0;
+const isHealDay = d => d >= state.season.start && d < todayStr() && d < seasonEnd() && !Object.values(state.players).some(p => dayDmg(p, d) > 0);
+const healOn = d => Math.round(BOSS_REGEN * chapterF() * teamOn(d));
 const fmtWeekday = d => new Date(d + 'T12:00').toLocaleDateString('de-DE', { weekday: 'long', day: 'numeric', month: 'numeric' });
 function daySheet() {
   const d = dayOpen, p0 = me();
@@ -1380,6 +1382,7 @@ function daySheet() {
     <div class="overlay sheet-wrap" data-act="closeday">
       <div class="ov-card sheet" data-stop="1">
         <div class="sheet-head"><h2>${fmtWeekday(d)}</h2><button class="btn small" data-act="closeday">✕</button></div>
+        ${isHealDay(d) ? `<div class="banner heal-banner">💤 <b>Keiner hat trainiert</b> – der Schweinehund hat sich um ${num(healOn(d))} Lebenspunkte geheilt.</div>` : ''}
         ${rows}
         ${bf ? `<button class="btn primary big" data-act="backfill" data-arg="${d}">➕ Training nachtragen</button>
           <small class="hint">Vergessen einzutragen? Das geht bis zu ${BACKFILL_DAYS} Tage zurück – ohne Minispiel.</small>`
@@ -1409,10 +1412,11 @@ function calendarCard() {
         const out = d < start || d >= end;
         if (out) return '<span class="cal-day out"></span>';
         const dots = ps.filter(([, p]) => trainedOn(p, d)).map(([id]) => `<i style="background:${PCOLOR[id]}"></i>`).join('');
-        return `<button class="cal-day ${d === today ? 'today' : ''} ${d > today ? 'future' : ''} ${d === last ? 'goal' : ''}" ${d <= today ? `data-act="calday" data-arg="${d}"` : ''}>
-          <small>${Number(d.slice(8))}</small><span class="dots">${d === last && !dots ? '🏁' : dots}</span></button>`;
+        const heal = isHealDay(d);
+        return `<button class="cal-day ${d === today ? 'today' : ''} ${d > today ? 'future' : ''} ${d === last ? 'goal' : ''} ${heal ? 'heal' : ''}" ${d <= today ? `data-act="calday" data-arg="${d}"` : ''}>
+          <small>${Number(d.slice(8))}</small><span class="dots">${heal ? `<em>+${num(healOn(d))}</em>` : d === last && !dots ? '🏁' : dots}</span></button>`;
       }).join('')}</div>
-    <small class="hint">Ein Punkt = an dem Tag trainiert. Tag antippen zeigt, wer was gemacht hat. 🏁 = letzter Tag der Jagd.</small>
+    <small class="hint">Ein Punkt = an dem Tag trainiert. <span class="heal-key">Rot</span> = keiner hat trainiert, der Schweinehund hat sich geheilt. Tag antippen zeigt Details. 🏁 = letzter Tag der Jagd.</small>
   </section>
   <h2>Trainingstage in dieser Jagd <small>von ${passed} Tagen</small></h2>
   <div class="card list">${ps.map(([id, p]) => `<div class="row who-link" data-act="stats" data-arg="${id}"><span class="cal-legend"><span><i style="background:${PCOLOR[id]}"></i>${esc(p.name)}</span></span><b>${inSeasonDays(p)}</b></div>`).join('')}</div>`;
