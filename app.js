@@ -903,13 +903,17 @@ function reset() {
   toast('🔄 Neues Spiel – alles auf Anfang!', true);
   render();
 }
-function resetMine() {
-  const p = me();
-  if (!confirm(`Deine Daten zurücksetzen?\n\n${p.name} startet bei null: Training, Schaden, Ausrüstung, Werte. Die anderen behalten alles.`)) return;
-  state.players[state.current] = normalizeHero({ name: p.name, goal: p.goal, resetId: state.resetId });
+// einen Helden auf null setzen (Name und Wochenziel bleiben) – auch für Mitspieler
+function resetHero(id = state.current) {
+  const p = state.players[id], mineOne = ownIds().includes(id);
+  if (!mineOne && !(sync && connected)) { toast('Dafür musst du online sein'); return; }
+  if (!confirm(`Daten von ${p.name} zurücksetzen?\n\n${p.name} startet bei null: Training, Schaden, Ausrüstung, Werte. Alle anderen behalten alles.`)) return;
+  const fresh = normalizeHero({ name: p.name, goal: p.goal, resetId: state.resetId });
+  state.players[id] = fresh;
   statsOf = null;
-  save();
-  toast('🔄 Deine Daten sind zurückgesetzt', true);
+  if (mineOne) save();
+  else { fresh.updatedAt = Date.now(); sync.setPlayer(game.id, id, clean(fresh)); }
+  toast(`🔄 ${p.name} startet bei null`, true);
   render();
 }
 function rename(id) {
@@ -1049,7 +1053,8 @@ const actions = {
   closesheet: () => { sheetOpen = false; render(); },
   stats: id => { statsOf = id; render(); },
   closestats: () => { statsOf = null; render(); },
-  resetmine: resetMine,
+  resetmine: () => resetHero(),
+  resethero: id => resetHero(id),
   bet: () => { if (!state.pact) setPact(); else if (!state.stake) setStake(); else { tab = 'mehr'; render(); window.scrollTo(0, 0); } },
   player: id => { if (online() || id === state.current) { statsOf = id; render(); return; } state.current = id; duelOpen = false; save(); render(); },
 };
@@ -1314,6 +1319,7 @@ function statsSheet() {
           ${row('👹 Monster erledigt', L.monsters)}${row('🥊 Sparring gewonnen', `${L.wins} von ${L.duels}`)}
           ${Object.entries(STATS).map(([k, st]) => row(`${st.icon} ${st.name}`, p.stats[k])).join('')}
         </div>
+        <button class="btn small ghost reset-hero" data-act="resethero" data-arg="${statsOf}">♻️ Daten von ${esc(p.name)} zurücksetzen</button>
       </div>
     </div>`;
 }

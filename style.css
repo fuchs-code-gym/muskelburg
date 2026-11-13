@@ -61,11 +61,11 @@ a { color: inherit; }
   border: 1px solid var(--head-line); background: #1c1f26; color: var(--head-text);
   border-radius: 10px; padding: 7px 12px;
 }
-.pchip b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.pchip b { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; max-width: 100%; }
 .pchip small { color: var(--head-muted); white-space: nowrap; }
 .pchip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
 .pchip.on small { color: #fff; opacity: .85; }
-.pchip.other { cursor: default; }
+.pchip.other { cursor: pointer; }
 .resbar { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
 .res-top { display: flex; justify-content: space-between; font-size: 12px; color: var(--head-muted); text-transform: uppercase; letter-spacing: .04em; font-weight: 700; }
 .res-top b { color: var(--head-text); font-size: 15px; letter-spacing: 0; }
@@ -527,3 +527,9 @@ b.who-link { text-decoration: underline dotted; text-underline-offset: 3px; }
 .stats-sheet .list { padding: 0 2px; }
 .stats-sheet .row { padding: 8px 0; font-size: 14px; }
 .stats-sheet h3 { margin: 12px 0 2px; }
+/* vier Spieler: kompakter, Namen bleiben im Kästchen */
+.players:has(.pchip:nth-child(4)) { gap: 6px; }
+.players:has(.pchip:nth-child(4)) .pchip { padding: 6px 7px; }
+.players:has(.pchip:nth-child(4)) .pchip b { font-size: 13px; }
+.players:has(.pchip:nth-child(4)) .pchip small { font-size: 11px; }
+.reset-hero { display: block; margin: 14px auto 0; }
