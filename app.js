@@ -282,6 +282,14 @@ let bossFold = true;      // Einsatz & Regeln auf der Jagd-Seite eingeklappt
 const openFolds = new Set(['f2']); // aufgeklappte Abschnitte unter „Mehr“
 let goalFold = true;
 const RECAP_KEY = 'hantelhelden-recap' + DEVICE;
+const HELD_KEY = 'hantelhelden-held' + DEVICE;
+function heldSeen() { try { return Number(localStorage.getItem(HELD_KEY + state.current)) || 0; } catch (e) { return 0; } }
+function markHeldSeen() { try { localStorage.setItem(HELD_KEY + state.current, String(Date.now())); } catch (e) { /* ignorieren */ } }
+// neu angelegte Ausrüstung, die man noch nicht gesehen hat
+function newGear(p) {
+  const seen = heldSeen();
+  return Object.values(p.equip || {}).map(uid => p.inv.find(i => i.uid === uid)).filter(it => it && (it.at || 0) > seen);
+}
 let calFold = false;      // Kalender aufgeklappt
 let dayOpen = null;       // Tages-Fenster im Kalender
 let backfillDay = null;   // Training wird für diesen vergangenen Tag nachgetragen
@@ -1447,7 +1455,7 @@ const actions = {
   intronext: () => { introPage = Math.min(INTRO.length - 1, introPage + 1); render(); window.scrollTo(0, 0); },
   introprev: () => { introPage = Math.max(0, introPage - 1); render(); window.scrollTo(0, 0); },
   introdone: () => { introPage = null; try { localStorage.setItem(INTRO_KEY, '1'); } catch (e) { /* ignorieren */ } render(); window.scrollTo(0, 0); },
-  tab: t => { tab = t; render(); window.scrollTo(0, 0); },
+  tab: t => { tab = t; if (t === 'held') markHeldSeen(); render(); window.scrollTo(0, 0); },
   sheet: id => { backfillDay = null; menu = {}; if (id && unitsLeft(me(), byId(ACTIVITIES, id)) > 0) menu[id] = 1; sheetOpen = true; render(); },
   menustep: menuStep,
   goaledit: () => { goalDraft = { ...(me().goal || { kraft: 2, puls: 1, ausgleich: 1 }) }; goalOpen = true; render(); },
@@ -1511,7 +1519,7 @@ function renderHeader() {
     </button>`).join('');
   renderSyncDot();
   const p = me();
-  const shown = tab === 'sparring' ? 'held' : tab;
+  const shown = tab === 'sparring' || tab === 'held' ? 'team' : tab;
   for (const btn of document.querySelectorAll('#tabs button')) btn.classList.toggle('on', btn.dataset.arg === shown);
   const badge = document.getElementById('spar-badge');
   if (badge) badge.textContent = '';
@@ -1655,6 +1663,7 @@ function viewJagd() {
       <small class="boss-info">💤 Er heilt sich um ${num(b.regen)} an jedem Tag, an dem keiner trainiert. Wer ${REST_DAYS} Tage nicht trainiert, ruht und zählt nicht für seine Lebenspunkte.</small>`}
     </section>
 
+    ${(() => { const ng = newGear(p); return ng.length ? `<button class="banner gear-new" data-act="tab" data-arg="held">🎁 <span><b>Neue Ausrüstung angelegt:</b> ${ng.map(it => gearOf(it).icon + ' ' + esc(gearOf(it).name)).join(', ')}</span><span class="chev">›</span></button>` : ''; })()}
     ${p.cheer ? `<section class="banner cheer">📣 <b>${esc(p.cheer.from)} feuert dich an!</b> Dein nächstes Training macht +25 % Schaden.</section>` : ''}
     ${goalCard(p, res)}`;
 }
@@ -1666,7 +1675,7 @@ function viewTeam() {
     ${teamTaskCard()}
     <h2>Diese Woche</h2>
     <div class="card list">${team().map(x => { const id = idOf(x), aw = awayNow(x);
-      return `<div class="row who-link" data-act="stats" data-arg="${id}"><span class="cal-legend"><span><i style="background:${PCOLOR[id]}"></i>${x === p ? 'Du' : esc(x.name)}</span></span>
+      return `<div class="row who-link" ${x === p ? 'data-act="tab" data-arg="held"' : `data-act="stats" data-arg="${id}"`}><span class="cal-legend"><span><i style="background:${PCOLOR[id]}"></i>${x === p ? 'Du <small class="held-link">🦸 mein Held ›</small>' : esc(x.name)}</span></span>
         <small>${aw ? AWAY[aw.why].icon + ' ' + AWAY[aw.why].name : resting(x) ? '💤 ruht' : ''}</small>
         <b>${goalTotal(x) ? `🎯 ${goalDone(x)}/${goalTotal(x)}${goalReached(x) ? ' ✓' : ''}` : '–'}</b></div>`; }).join('')}</div>
     ${cheerRow(p)}
@@ -1958,6 +1967,7 @@ function revealOverlay() {
 function viewHeld() {
   const p = me(), lvl = levelOf(p), others = othersOf(p);
   return `
+    <button class="btn small ghost back-btn" data-act="tab" data-arg="team">← zurück zum Team</button>
     <section class="card hero-card">
       ${heroSvg(p, 'big')}
       <div class="hero-side">
@@ -2272,7 +2282,7 @@ function viewIntro() {
 }
 
 function viewMehr() {
-  return (viewSaison() + viewProfil()).split(/(?=<h2>)/).map((part, i) => {
+  return `<button class="card held-entry" data-act="tab" data-arg="held"><span>🦸</span><b>Mein Held</b><small>Werte & Ausrüstung</small><span class="chev">›</span></button>` + (viewSaison() + viewProfil()).split(/(?=<h2>)/).map((part, i) => {
     const m = part.match(/^<h2>([\s\S]*?)<\/h2>([\s\S]*)$/);
     if (!m) return part;
     const key = 'f' + i, open = openFolds.has(key);

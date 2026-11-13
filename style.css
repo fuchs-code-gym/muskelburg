@@ -647,3 +647,12 @@ b.who-link { text-decoration: underline dotted; text-underline-offset: 3px; }
 .cheer-row { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; margin-top: 14px; }
 .task { margin-top: 0; }
 .list .row small { margin-left: auto; }
+
+/* v43: Held über Team/Mehr */
+.held-link { color: var(--muted, #8a8f99); font-weight: 500; margin-left: 6px; }
+.held-entry { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer; margin-bottom: 12px; }
+.held-entry > span:first-child { font-size: 1.4em; }
+.held-entry small { color: var(--muted, #8a8f99); flex: 1; }
+.held-entry .chev, .gear-new .chev { font-size: 1.3em; opacity: .6; }
+.gear-new { display: flex; align-items: center; gap: 10px; width: 100%; text-align: left; font: inherit; color: inherit; cursor: pointer; }
+.gear-new > span:nth-child(2) { flex: 1; }
