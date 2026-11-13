@@ -982,7 +982,8 @@ function startTrain() {
   render();
 }
 // Menü: wie viele Einheiten heute noch gehen
-const unitsLeft = (p, a) => Math.floor((a.maxMin - minutesToday(p, a.id)) / a.step);
+// pro Eintragung bis zu maxMin (12 Schritte) – keine Tagesgrenze; viel am Tag bremst nur der Erholungs-Abzug
+const unitsLeft = (p, a) => Math.floor(a.maxMin / a.step);
 function menuStep(arg) {
   const [id, d] = arg.split(':');
   const a = byId(ACTIVITIES, id);
