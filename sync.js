@@ -62,6 +62,19 @@ window.MB_SYNC = {
     return remove(path(game));
   },
 
+  // Sicherung: eigener Pfad neben dem Spiel – bleibt erhalten, wenn das Spiel gelöscht wird
+  saveBackup(game, slot, data) {
+    return set(ref(db, ['g', game + '-sicherung', slot].join('/')), data);
+  },
+  async getBackups(game) {
+    const snap = await get(ref(db, ['g', game + '-sicherung'].join('/')));
+    return snap.val();
+  },
+  async restoreGame(game, meta, players) {
+    await set(path(game, 'meta'), meta);
+    for (const [pid, data] of Object.entries(players || {})) await set(path(game, 'players', pid), data);
+  },
+
   watch(game, me, h) {
     onValue(ref(db, '.info/connected'), s => h.connection(!!s.val()));
     onValue(path(game, 'meta'), s => h.meta(s.val()));

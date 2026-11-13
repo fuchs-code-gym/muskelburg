@@ -635,3 +635,11 @@ b.who-link { text-decoration: underline dotted; text-underline-offset: 3px; }
 .recap .row { padding: 8px 0; }
 .banner.away { border-left: 4px solid var(--blue); }
 .banner.away .btn { margin-top: 8px; }
+
+/* Team-Aufgabe, gemeinsam trainiert */
+.task { display: flex; flex-direction: column; gap: 6px; margin-top: 10px; }
+.task.done { border-color: var(--good); }
+.task-text { font-weight: 700; font-size: 15px; }
+.task .hpbar i { background: var(--good); }
+.together { margin: 6px 0 0 16px; border: 1px dashed var(--line); background: var(--surface); border-radius: 999px; padding: 4px 11px; font-size: 13px; font-weight: 700; }
+.together.on { border-style: solid; border-color: var(--good); color: var(--good); }

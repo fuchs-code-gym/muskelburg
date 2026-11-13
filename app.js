@@ -77,6 +77,7 @@ const CHALLENGE_H = 12;
 const CHALLENGER_BONUS = 0.1;
 const LUCK_MIN = 0.75, LUCK_SPAN = 0.5;
 const CHEER_H = 24;
+const CHEER_WEEK = 3;      // so oft darf jeder pro Woche anfeuern
 
 // Taktiken im Sparring: jede schlägt eine andere, jede nutzt einen anderen Wert
 const TACTICS = {
@@ -174,6 +175,8 @@ function newHero(name) {
     inv: [], equip: { weapon: null, armor: null, trinket: null }, tactics: ['C', 'A', 'B'],
     life: newLife(), log: [], reports: [], outgoing: [], incoming: [],
     cheer: null, cheerSent: {}, claimed: {}, resetId: null, updatedAt: 0,
+    cheerWeek: null,      // { wk, n }: wie oft diese Woche angefeuert
+    together: {},         // „gemeinsam trainiert“: { '<pid>:<Tag>': true }
     away: [],             // Krank/Urlaub: [{ from, to, why }] (to leer = läuft noch)
     reacts: {},           // eigene Reaktionen auf Trainings anderer: { '<pid>:<t>': '🔥' }
     goal: null,           // Wochenziel, z. B. { kraft: 3, puls: 2, ausgleich: 1 }
@@ -232,7 +235,7 @@ function normalizeHero(p, name = '') {
   const fresh = newHero(name);
   p = { ...fresh, ...p };
   for (const k of ['stats', 'counts', 'equip', 'life']) p[k] = { ...fresh[k], ...p[k] };
-  for (const k of ['dmg', 'claimed', 'reacts']) p[k] = p[k] || {};
+  for (const k of ['dmg', 'claimed', 'reacts', 'together']) p[k] = p[k] || {};
   if (!p.cheerSent || typeof p.cheerSent !== 'object') p.cheerSent = {};
   p.tactics = asList(p.tactics).length === 3 ? asList(p.tactics) : fresh.tactics;
   for (const k of ['inv', 'log', 'reports', 'outgoing', 'incoming', 'away']) p[k] = asList(p[k]);
@@ -739,12 +742,45 @@ function claimRewards(p) {
   return changed;
 }
 
+const BACKUP_KEY = 'hantelhelden-sicherung' + DEVICE;
+function backupDaily() {
+  if (!online() || !sync || gameDeleted || !connected) return;
+  let last = null;
+  try { last = localStorage.getItem(BACKUP_KEY); } catch (e) { /* ignorieren */ }
+  if (last === todayStr()) return;
+  try { localStorage.setItem(BACKUP_KEY, todayStr()); } catch (e) { /* ignorieren */ }
+  const players = {};
+  for (const id of PIDS) if (state.players[id] && state.players[id].updatedAt) players[id] = clean(state.players[id]);
+  const meta = clean({ season: state.season, hall: state.hall, pact: state.pact, stake: state.stake, resetId: state.resetId });
+  window.MB_SYNC.saveBackup(game.id, String(new Date().getDay()), { day: todayStr(), t: Date.now(), meta, players })
+    .catch(e => console.warn('Sicherung fehlgeschlagen', e));
+}
+async function restoreFromBackup(id = game && game.id) {
+  if (!window.MB_SYNC || !id) return;
+  let all = null;
+  try { all = await window.MB_SYNC.getBackups(id); } catch (e) { toast('Keine Verbindung'); return; }
+  const list = Object.values(all || {}).filter(b => b && b.meta).sort((a, b) => b.t - a.t);
+  if (!list.length) { toast('Keine Sicherung gefunden'); return; }
+  const pick = list.map((b, i) => `${i + 1}: ${new Date(b.t).toLocaleString('de-DE', { weekday: 'short', day: 'numeric', month: 'numeric', hour: '2-digit', minute: '2-digit' })}`).join('\n');
+  const v = prompt(`Welche Sicherung zurückholen? (Nummer eingeben)\n\n${pick}\n\nAchtung: Der aktuelle Stand aller Spieler wird damit ersetzt.`, '1');
+  const b = list[Number(v) - 1];
+  if (!b) return;
+  if (!confirm(`Spiel wirklich auf den Stand vom ${new Date(b.t).toLocaleString('de-DE')} zurücksetzen – für alle?`)) return;
+  const players = {};
+  for (const [pid, data] of Object.entries(b.players || {})) players[pid] = { ...data, updatedAt: Date.now() };
+  try { await window.MB_SYNC.restoreGame(id, b.meta, players); } catch (e) { toast('Zurückholen fehlgeschlagen'); return; }
+  alert('✅ Sicherung zurückgeholt.');
+  location.reload();
+}
 function resolveAll() {
   if (!game) return false;
   let changed = reconcileOwn();
   changed = checkSeason() || changed;
+  backupDaily();
   for (const p of mine()) {
     changed = recalcHero(p) || changed;
+    changed = claimTogether(p) || changed;
+    changed = claimTeamTask(p) || changed;
     changed = claimRewards(p) || changed;
     changed = expireDuels(p) || changed;
     if (p.cheer && p.cheer.until < Date.now()) { p.cheer = null; changed = true; }
@@ -1035,6 +1071,8 @@ function health(id) {
 function cheer(pid) {
   const p = me(), o = state.players[pid];
   if (!o || o === p || p.cheerSent[pid] === todayStr()) return;
+  if (cheersLeft(p) <= 0) { toast(`📣 Du hast diese Woche schon ${CHEER_WEEK}× angefeuert – ab Montag wieder`); return; }
+  p.cheerWeek = { wk: weekKey(), n: (p.cheerWeek && p.cheerWeek.wk === weekKey() ? p.cheerWeek.n : 0) + 1 };
   p.cheerSent[pid] = todayStr();
   p.life.cheers++;
   sendEvent(pid, { kind: 'cheer', from: p.name });
@@ -1042,16 +1080,89 @@ function cheer(pid) {
   toast(`📣 ${o.name} angefeuert – nächstes Training +25 %!`);
   render();
 }
+const cheersLeft = p => CHEER_WEEK - (p.cheerWeek && p.cheerWeek.wk === weekKey() ? p.cheerWeek.n : 0);
 const lastTrain = p => Object.keys(p.dmg).filter(d => p.dmg[d] > 0 && d <= todayStr()).sort().pop() || null;
 function cheerRow(p) {
   const os = othersOf(p);
   if (!os.length) return '';
   const since = o => { const l = lastTrain(o); return l ? daysBetween(l, todayStr()) : 99; };
   const sorted = [...os].sort((x, y) => since(y) - since(x));
-  return `<div class="cheer-row"><small>📣 Anfeuern (+25 % aufs nächste Training):</small>
-    <div class="health">${sorted.map(o => { const id = idOf(o), done = p.cheerSent[id] === todayStr(), d = since(o);
+  const left = cheersLeft(p);
+  return `<div class="cheer-row"><small>📣 Anfeuern (+25 % aufs nächste Training) · noch ${left}× diese Woche</small>
+    <div class="health">${sorted.map(o => { const id = idOf(o), done = p.cheerSent[id] === todayStr(), d = since(o), off = done || left <= 0;
       const hint = awayNow(o) ? AWAY[awayNow(o).why].icon : d === 0 ? 'heute ✓' : d >= 99 ? 'noch nie' : d === 1 ? 'gestern' : `seit ${d} T.`;
-      return `<button class="chip-btn ${done ? 'done' : ''}" data-act="cheer" data-arg="${id}" ${done ? 'disabled' : ''}>${esc(o.name)} <small>${done ? '✓' : hint}</small></button>`; }).join('')}</div></div>`;
+      return `<button class="chip-btn ${done ? 'done' : ''}" data-act="cheer" data-arg="${id}" ${off ? 'disabled' : ''}>${esc(o.name)} <small>${done ? '✓' : hint}</small></button>`; }).join('')}</div></div>`;
+}
+
+/* ---------- Team-Aufgabe der Woche ---------- */
+const TEAM_TASK_BONUS = 150;   // Bonus-Schaden für jeden, wenn die Aufgabe geschafft ist
+const TEAM_TASKS = [
+  { icon: '🫀', text: 'Jeder macht mindestens 1× Ausdauer', each: (q, wk) => weekSessions(q, 'puls', wk) + weekSessions(q, 'sport', wk) >= 1 },
+  { icon: '⏱️', text: n => `Zusammen ${75 * n} Minuten trainieren`, total: (qs, wk) => [sum(qs.map(q => weekMinutesAll(q, wk))), 75 * qs.length] },
+  { icon: '📅', text: 'Jeder trainiert an mindestens 2 Tagen', each: (q, wk) => weekDays(q, wk) >= 2 },
+  { icon: '🧘', text: n => `Zusammen ${n}× Ausgleich (Yoga, Dehnen …)`, total: (qs, wk) => [sum(qs.map(q => weekSessions(q, 'ausgleich', wk))), qs.length] },
+  { icon: '🔥', text: 'An 5 verschiedenen Tagen trainiert jemand', total: (qs, wk) => { const ds = new Set(); for (const q of qs) for (let k = 0; k < 7; k++) if (trainedDay(q, addDays(wk, k))) ds.add(k); return [ds.size, 5]; } },
+  { icon: '💪', text: 'Jeder macht mindestens 1× Kraft', each: (q, wk) => weekSessions(q, 'kraft', wk) >= 1 },
+];
+function weekMinutesAll(q, wk) { return sum(q.log.filter(e => e.kind === 'train' && e.day >= wk && e.day < addDays(wk, 7)).flatMap(partsOf).map(x => x.min || 0)); }
+function weekDays(q, wk) { let n = 0; for (let k = 0; k < 7; k++) if (trainedDay(q, addDays(wk, k))) n++; return n; }
+function teamTask(wk = weekKey()) {
+  const i = Math.abs(Math.round(new Date(wk + 'T12:00') / (7 * DAY_MS))) % TEAM_TASKS.length;
+  const t = TEAM_TASKS[i];
+  // wer die ganze Woche krank/im Urlaub ist oder ruht, muss nicht mitmachen
+  const qs = team().filter(q => !awayNow(q) && activeOn(q, wk < todayStr() ? wk : todayStr()));
+  const n = Math.max(1, qs.length);
+  let have, need, who = [];
+  if (t.each) { who = qs.map(q => ({ q, ok: t.each(q, wk) })); have = who.filter(x => x.ok).length; need = qs.length; }
+  else [have, need] = t.total(qs, wk);
+  return { ...t, text: typeof t.text === 'function' ? t.text(n) : t.text, have, need, who, done: need > 0 && have >= need, wk };
+}
+function claimTeamTask(p) {
+  const tt = teamTask();
+  const k = 't' + tt.wk;
+  if (!tt.done || p.claimed[k] || !team().includes(p)) return false;
+  p.claimed[k] = true;
+  p.dmg[todayStr()] = (p.dmg[todayStr()] || 0) + TEAM_TASK_BONUS;
+  if (p === me()) toast(`🤝 Team-Aufgabe geschafft! +${TEAM_TASK_BONUS} Bonus-Schaden`, true);
+  return true;
+}
+function teamTaskCard() {
+  const tt = teamTask();
+  return `<section class="card task ${tt.done ? 'done' : ''}">
+    <div class="goal-top"><b>🤝 Team-Aufgabe der Woche</b><small>${tt.done ? `✓ +${TEAM_TASK_BONUS} für jeden` : `+${TEAM_TASK_BONUS} für jeden`}</small></div>
+    <div class="task-text">${tt.icon} ${tt.text}</div>
+    <div class="hpbar small"><i style="width:${Math.min(100, tt.need ? tt.have / tt.need * 100 : 0)}%"></i></div>
+    <small class="hint">${tt.who.length ? tt.who.map(x => `${x.ok ? '✓' : '·'} ${esc(x.q === me() ? 'Du' : x.q.name)}`).join('  ') : `${num(tt.have)} von ${num(tt.need)}`}</small>
+  </section>`;
+}
+
+/* ---------- Gemeinsam trainiert: beide bestätigen → +10 % auf das Training des Tages ---------- */
+const TOGETHER_BONUS = 0.1;
+const myTrainDmg = (p, d) => sum(p.log.filter(e => e.kind === 'train' && e.day === d).map(e => e.dmg || 0));
+function toggleTogether(key) {
+  const p = me(), [pid, d] = key.split('|');
+  const k = pid + ':' + d;
+  if (p.together[k]) delete p.together[k]; else p.together[k] = true;
+  const old = addDays(todayStr(), -14);
+  for (const x of Object.keys(p.together)) if (x.split(':')[1] < old) delete p.together[x];
+  save();
+  toast(p.together[k] ? `🤝 Vermerkt – sobald ${state.players[pid].name} es auch bestätigt, gibt es +10 % für euch beide` : 'Zurückgenommen');
+  render();
+}
+function claimTogether(p) {
+  let changed = false;
+  const me_ = idOf(p);
+  for (const k of Object.keys(p.together)) {
+    const [pid, d] = k.split(':'), o = state.players[pid];
+    if (!o || !o.together || !o.together[me_ + ':' + d] || p.claimed['z' + d + pid]) continue;
+    const bonus = Math.round(myTrainDmg(p, d) * TOGETHER_BONUS);
+    if (!bonus) continue;
+    p.claimed['z' + d + pid] = true;
+    p.dmg[d] = (p.dmg[d] || 0) + bonus;
+    if (p === me()) toast(`🤝 Gemeinsam mit ${o.name} trainiert: +${num(bonus)} Bonus-Schaden`, true);
+    changed = true;
+  }
+  return changed;
 }
 
 /* ---------- Team-Feed mit Reaktionen ---------- */
@@ -1090,6 +1201,11 @@ function feedCard() {
     const rs = reactionsOf(key), mine = q === p, myR = p.reacts[key];
     return `<div class="feed-row"><div class="feed-top"><i style="background:${PCOLOR[pid]}"></i><b>${mine ? 'Du' : esc(q.name)}</b>
         <span>${what}</span><small>${when(e.day)}${e.added ? ' · nachgetragen' : ''}</small></div>
+      ${!mine && myTrainDmg(p, e.day) > 0 && e.day >= addDays(todayStr(), -3) ? (() => {
+        const k = pid + ':' + e.day, mineOk = p.together[k], theirs = q.together && q.together[state.current + ':' + e.day];
+        const lbl = mineOk && theirs ? '🤝 zusammen trainiert ✓ +10 %' : mineOk ? `🤝 wartet auf ${esc(q.name)}` : theirs ? `🤝 ${esc(q.name)} sagt: zusammen trainiert – bestätigen?` : '🤝 zusammen trainiert?';
+        return `<button class="together ${mineOk ? 'on' : ''}" data-act="together" data-arg="${pid}|${e.day}">${lbl}</button>`;
+      })() : ''}
       <div class="feed-reacts">${mine ? (rs.length ? rs.map(x => `<span title="${esc(x.who.name)}">${x.r} ${esc(x.who.name)}</span>`).join('') : '<small>noch keine Reaktion</small>')
         : REACTS.map(r => { const n = rs.filter(x => x.r === r).length; return `<button class="react ${myR === r ? 'on' : ''}" data-act="react" data-arg="${key}|${r}">${r}${n ? ` ${n}` : ''}</button>`; }).join('')}</div></div>`;
   }).join('')}</section>`;
@@ -1347,6 +1463,9 @@ const actions = {
   fold: k => { openFolds.has(k) ? openFolds.delete(k) : openFolds.add(k); render(); },
   sparwith: id => { sparTarget = id; render(); },
   away: why => setAway(why),
+  restorebackup: () => restoreFromBackup(),
+  restorejoin: () => restoreFromBackup(joinId),
+  together: arg => toggleTogether(arg),
   react,
   recapshare: () => shareRecap(),
   recaphide: () => { try { localStorage.setItem(RECAP_KEY, String(state.hall[0] && state.hall[0].no)); } catch (e) { /* ignorieren */ } render(); },
@@ -1542,6 +1661,7 @@ function viewJagd() {
     <div class="today">
       <span>Woche: ${team().map(x => `<b class="who-link" data-act="stats" data-arg="${idOf(x)}">${x === p ? 'Du' : esc(x.name)} ${goalTotal(x) ? `${goalDone(x)}/${goalTotal(x)}${goalReached(x) ? ' ✓' : ''}` : '–'}</b>`).join(' · ')}</span>
     </div>
+    ${teamTaskCard()}
     ${cheerRow(p)}
     ${feedCard()}`;
 }
@@ -2029,6 +2149,7 @@ function viewProfil() {
         <div class="row"><span>🔗 Einladungslink</span><button class="btn small" data-act="share">Teilen</button></div>
         <div class="row"><span>📱 Dieses Gerät abmelden</span><button class="btn small" data-act="leave">Abmelden</button></div>
         <div class="row"><span>♻️ Meine Daten zurücksetzen</span><button class="btn small" data-act="resetmine">Zurücksetzen</button></div>
+        ${game.me === 'a' ? '<div class="row"><span>🗄️ Sicherung zurückholen <small>(tägliche Kopie, 7 Tage)</small></span><button class="btn small" data-act="restorebackup">Öffnen</button></div>' : ''}
         ${game.me === 'a' ? '<div class="row"><span>🗑️ Spiel für alle löschen <small>(nur Spiel-Ersteller)</small></span><button class="btn small danger" data-act="deletegame">Löschen</button></div>' : ''}`
       : '<div class="row"><span>📴 Nur auf diesem Gerät</span><button class="btn small" data-act="leave">Online spielen</button></div>'}
     </div>
@@ -2050,7 +2171,8 @@ function viewSetup() {
     if (!joinInfo) { loadJoinInfo(); return '<section class="card setup"><p>⏳ Lade Einladung …</p></section>'; }
     if (joinInfo.missing || joinInfo.error || !joinInfo.meta) {
       return `<section class="card setup"><div class="setup-icon">🤔</div><h2>Einladung nicht gefunden</h2>
-        <p>${joinInfo.error ? 'Keine Verbindung – bitte mit Internet nochmal öffnen.' : 'Der Link ist ungültig oder das Spiel wurde gelöscht.'}</p></section>`;
+        <p>${joinInfo.error ? 'Keine Verbindung – bitte mit Internet nochmal öffnen.' : 'Der Link ist ungültig oder das Spiel wurde gelöscht.'}</p>
+        ${joinInfo.error ? '' : '<button class="btn" data-act="restorejoin">🗄️ Aus Sicherung zurückholen</button>'}</section>`;
     }
     const players = joinInfo.players || {};
     const taken = PIDS.filter(pid => players[pid] && players[pid].updatedAt);
@@ -2116,8 +2238,9 @@ const INTRO = [
       </ul>` },
   { pic: () => '<div class="intro-icon">🤝</div>', title: 'Team & Monat',
     body: `<ul class="intro-list">
-        <li>📣 <b>Anfeuern:</b> Gib einem Mitspieler +25 % auf sein nächstes Training – am besten dem, der länger nicht da war.</li>
-        <li>🔥 Reagiere auf die Trainings der anderen und sieh im 📅 Kalender, wer wann trainiert hat.</li>
+        <li>📣 <b>Anfeuern:</b> 3× pro Woche kannst du einem Mitspieler +25 % auf sein nächstes Training geben – am besten dem, der länger nicht da war.</li>
+        <li>🤝 Jede Woche gibt es eine <b>Team-Aufgabe</b> – geschafft = Bonus für alle.</li>
+        <li>🔥 Reagiere auf die Trainings der anderen. Wart ihr zusammen im Gym? Bestätigt es beide – <b>+10 %</b> für euch.</li>
         <li>🤒 Krank oder 🏖️ im Urlaub? Melde dich unter ☰ Mehr ab – dann zählst du nicht mit.</li>
         <li>📅 Am 1. jedes Monats startet automatisch die neue Jagd, mit Rückblick zum Teilen.</li>
         <li>👑 Wer pro Woche mehr Schaden macht, bekommt die <b>MVP-Krone</b>.</li>
