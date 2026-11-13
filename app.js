@@ -36,14 +36,14 @@ const COURSES = [
   { id: 'ruecken', name: 'Rücken', icon: '🦴' }, { id: 'spinning', name: 'Spinning', icon: '🚲' },
   { id: 'sonstiges', name: 'Sonstiges', icon: '✨' },
 ];
-// Gesund gelebt: je +5 % Schaden auf die Trainings des Tages
+// Gesund gelebt: je +3 % Schaden auf die Trainings des Tages
 const HEALTH = [
   { id: 'schlaf', name: 'Gut geschlafen', short: 'Schlaf', icon: '😴' },
   { id: 'essen',  name: 'Gesund gegessen', short: 'Essen', icon: '🥗' },
   { id: 'wasser', name: 'Genug getrunken', short: 'Trinken', icon: '💧' },
 ];
 const HEALTH_NOW = HEALTH;
-const HEALTH_BONUS = 0.05;
+const HEALTH_BONUS = 0.03;
 
 // Schaden
 const PR_MULT = 2.5;          // Neuer Rekord (Gewicht erhöht) = Volltreffer, 1× am Tag
@@ -909,7 +909,7 @@ function health(id) {
   if (withDay(day, () => healthToday(p)).includes(id)) return;
   p.log.unshift({ t: Date.now(), day, kind: 'health', id });
   save();
-  toast(`${byId(HEALTH, id).icon} +5 % Schaden auf deine Trainings ${day === todayStr() ? 'heute' : 'an dem Tag'}`);
+  toast(`${byId(HEALTH, id).icon} +3 % Schaden auf deine Trainings ${day === todayStr() ? 'heute' : 'an dem Tag'}`);
   render();
 }
 
@@ -1461,7 +1461,7 @@ function trainSheet() {
       <div class="ov-card sheet" data-stop="1">
         <div class="sheet-head"><h2>${backfillDay ? `Nachtragen: ${fmtWeekday(backfillDay)}` : 'Was hast du gemacht?'}</h2><button class="btn small" data-act="closesheet">✕</button></div>
         ${ACTIVITIES.map(a => actRow(p, a)).join('')}
-        <div class="health-row"><small>Heute gut geschlafen, gesund gegessen, genug getrunken? Je +5 % Schaden</small>
+        <div class="health-row"><small>Heute gut geschlafen, gesund gegessen, genug getrunken? Je +3 % Schaden</small>
           <div class="health">${HEALTH_NOW.map(h => { const done = healthToday(p).includes(h.id);
             return `<button class="chip-btn ${done ? 'done' : ''}" data-act="health" data-arg="${h.id}" ${done ? 'disabled' : ''}>${h.icon} ${h.short}${done ? ' ✓' : ''}</button>`; }).join('')}</div></div>
         <div class="prtoggle ${hasPr && prOn && !prToday(p) ? 'on' : ''} ${prToday(p) || !hasPr ? 'used' : ''}" ${hasPr && !prToday(p) ? 'data-act="pr"' : ''}>
