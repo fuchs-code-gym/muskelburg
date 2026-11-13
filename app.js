@@ -1308,8 +1308,7 @@ function viewJagd() {
     <div class="today">
       <span>Woche: ${team().map(x => `<b class="who-link" data-act="stats" data-arg="${idOf(x)}">${x === p ? 'Du' : esc(x.name)} ${goalTotal(x) ? `${goalDone(x)}/${goalTotal(x)}${goalReached(x) ? ' ✓' : ''}` : '–'}</b>`).join(' · ')}</span>
       <button class="btn small" data-act="cheer" ${p.cheerSent === todayStr() || !others.length ? 'disabled' : ''}>${p.cheerSent === todayStr() ? '📣 angefeuert ✓' : '📣 anfeuern'}</button>
-    </div>
-    ${calendarCard()}`;
+    </div>`;
 }
 
 /* ---------- Kalender: wer hat wann trainiert ---------- */
@@ -1328,9 +1327,10 @@ function calendarCard() {
   const ps = team().map(p => [idOf(p), p]);
   const days = [];
   for (let d = weekKey(new Date(start + 'T12:00')); d < end || new Date(d + 'T12:00').getDay() !== 1; d = addDays(d, 1)) days.push(d);
-  const head = `<button class="goal-top goal-toggle" data-act="calfold"><b>📅 Kalender · ${fmtDay(start)}–${fmtDay(last)}</b><span class="chev">${calFold ? '▾' : '▴'}</span></button>`;
-  if (calFold) return `<section class="card cal">${head}</section>`;
-  return `<section class="card cal">${head}
+  const head = `<div class="goal-top"><b>📅 Jagd ${state.season.no} · ${fmtDay(start)}–${fmtDay(last)}</b><small>noch ${daysLeft()} Tage</small></div>`;
+  const inSeasonDays = p => { let n = 0; for (let d = start; d < end && d <= today; d = addDays(d, 1)) if (trainedOn(p, d)) n++; return n; };
+  const passed = Math.max(1, Math.min(daysBetween(start, today) + 1, daysBetween(start, end)));
+  return `<h2>Kalender</h2><section class="card cal">${head}
     <div class="cal-legend">${ps.map(([id, p]) => `<span><i style="background:${PCOLOR[id]}"></i>${esc(p.name)}</span>`).join('')}</div>
     <div class="cal-grid">${['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].map(w => `<b>${w}</b>`).join('')}
       ${days.map(d => {
@@ -1341,7 +1341,9 @@ function calendarCard() {
           <small>${Number(d.slice(8))}</small><span class="dots">${d === last && !dots ? '🏁' : dots}</span></button>`;
       }).join('')}</div>
     <small class="hint">Ein Punkt = an dem Tag trainiert. Tag antippen zeigt, wer was gemacht hat. 🏁 = letzter Tag der Jagd.</small>
-  </section>`;
+  </section>
+  <h2>Trainingstage in dieser Jagd <small>von ${passed} Tagen</small></h2>
+  <div class="card list">${ps.map(([id, p]) => `<div class="row who-link" data-act="stats" data-arg="${id}"><span class="cal-legend"><span><i style="background:${PCOLOR[id]}"></i>${esc(p.name)}</span></span><b>${inSeasonDays(p)}</b></div>`).join('')}</div>`;
 }
 
 // Wochenziel-Karte: Kästchen pro Training, Antippen trägt ein
@@ -1822,7 +1824,7 @@ function viewMehr() {
     return `<section class="fold ${open ? 'open' : ''}"><button class="fold-head" data-act="fold" data-arg="${key}"><h2>${m[1]}</h2><span class="chev">${open ? '▴' : '▾'}</span></button>${open ? `<div class="fold-body">${m[2]}</div>` : ''}</section>`;
   }).join('');
 }
-const VIEWS = { jagd: viewJagd, held: viewHeld, sparring: viewSparring, mehr: viewMehr };
+const VIEWS = { jagd: viewJagd, kalender: () => calendarCard(), held: viewHeld, sparring: viewSparring, mehr: viewMehr };
 
 function render() {
   const setup = !game || joinId || setupStep;

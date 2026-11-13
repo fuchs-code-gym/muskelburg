@@ -599,3 +599,4 @@ b.who-link { text-decoration: underline dotted; text-underline-offset: 3px; }
 .cal-day.today { border: 2px solid var(--text); }
 .cal-day.goal { border-color: var(--bad); }
 .cal-day.goal .dots { font-size: 11px; line-height: 1; }
+.cal { margin-top: 0; }
