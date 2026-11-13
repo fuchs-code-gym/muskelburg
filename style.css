@@ -613,3 +613,25 @@ b.who-link { text-decoration: underline dotted; text-underline-offset: 3px; }
 .cal-day.heal em { font-style: normal; font-size: 9.5px; font-weight: 800; color: var(--bad); line-height: 1; }
 .heal-key { color: var(--bad); font-weight: 800; }
 .heal-banner { border-left: 4px solid var(--bad); }
+
+/* ---------- Anfeuern gezielt, Team-Feed, Rückblick, Abmeldung ---------- */
+.cheer-row { margin: 10px 0 0; }
+.cheer-row > small { display: block; margin-bottom: 6px; }
+.cheer-row .chip-btn small { font-weight: 600; margin-left: 2px; }
+.feed { padding: 4px 14px; }
+.feed-row { padding: 10px 0; border-bottom: 1px solid var(--line); }
+.feed-row:last-child { border-bottom: 0; }
+.feed-top { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; font-size: 14px; }
+.feed-top i { width: 9px; height: 9px; border-radius: 50%; flex-shrink: 0; }
+.feed-top small { margin-left: auto; }
+.feed-reacts { display: flex; gap: 6px; flex-wrap: wrap; margin: 6px 0 0 16px; font-size: 13px; }
+.feed-reacts span { background: var(--surface-2); border-radius: 999px; padding: 2px 9px; }
+.react { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 3px 10px; font-size: 14px; }
+.react.on { border-color: var(--good); background: color-mix(in srgb, var(--good) 14%, var(--surface)); font-weight: 800; }
+.recap { display: flex; flex-direction: column; gap: 8px; border-width: 2px; }
+.recap.won { border-color: var(--good); }
+.recap.lost { border-color: var(--bad); }
+.recap .list { padding: 0; }
+.recap .row { padding: 8px 0; }
+.banner.away { border-left: 4px solid var(--blue); }
+.banner.away .btn { margin-top: 8px; }

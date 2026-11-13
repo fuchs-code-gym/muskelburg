@@ -12,6 +12,7 @@ const STATS = {
   mind: { name: 'Geist',    icon: '🧠', color: '#8e6bd8' },
 };
 const BASE_STAT = 10;
+const RECALC_V = 1;           // Version der Schadensregeln (für einmalige Neuberechnung alter Trainings)
 // Werte-Bonus auf den Schaden flacht ab: 10 → +7 %, 50 → +23 %, 100 → +31 %, 300 → +42 %, nie mehr als +50 %.
 // So bleibt es fair zwischen alten Hasen und Neuen.
 const STAT_CAP = 0.5, STAT_HALF = 60;
@@ -135,7 +136,6 @@ const BADGES = [
   { icon: '🐷', name: 'Schweinehund-Bezwinger', desc: 'Schweinehund besiegt', test: l => l.bossKills >= 1 },
   { icon: '👑', name: 'MVP',              desc: '3× Wochen-MVP',            test: l => l.crowns >= 3 },
   { icon: '🌟', name: 'Legendär',         desc: 'legendäre Beute gefunden', test: l => l.legendaries >= 1 },
-  { icon: '🥊', name: 'Sparring-Ass',     desc: '5 Sparrings gewonnen',     test: l => l.wins >= 5 },
   { icon: '📣', name: 'Motivator',        desc: '10× angefeuert',           test: l => l.cheers >= 10 },
 ];
 
@@ -173,7 +173,9 @@ function newHero(name) {
     dmg: {},              // Datum → Schaden an diesem Tag
     inv: [], equip: { weapon: null, armor: null, trinket: null }, tactics: ['C', 'A', 'B'],
     life: newLife(), log: [], reports: [], outgoing: [], incoming: [],
-    cheer: null, cheerSent: null, claimed: {}, resetId: null, updatedAt: 0,
+    cheer: null, cheerSent: {}, claimed: {}, resetId: null, updatedAt: 0,
+    away: [],             // Krank/Urlaub: [{ from, to, why }] (to leer = läuft noch)
+    reacts: {},           // eigene Reaktionen auf Trainings anderer: { '<pid>:<t>': '🔥' }
     goal: null,           // Wochenziel, z. B. { kraft: 3, puls: 2, ausgleich: 1 }
     goalNext: null,       // gesenktes Ziel, das erst ab nächster Woche gilt: { from, goal }
     joined: null,         // Beitrittstag (leer = von Anfang an dabei)
@@ -191,6 +193,21 @@ function goalTotal(p) { return sum(ACTIVITIES.map(a => goalOf(p, a.id))); }
 function goalDone(p) { return sum(ACTIVITIES.map(a => Math.min(goalOf(p, a.id), weekSessions(p, a.id)))); }
 const goalReached = p => goalTotal(p) > 0 && goalDone(p) >= goalTotal(p);
 // Ziel ändern: Erhöhen geht immer. Senken gilt erst ab nächster Woche, sobald in dieser Woche trainiert wurde.
+function setAway(why) {
+  const p = me();
+  if (awayNow(p)) return;
+  p.away.push({ from: todayStr(), to: null, why });
+  save();
+  toast(why === 'krank' ? '🤒 Gute Besserung! Du zählst gerade nicht – weder für den Schweinehund noch fürs Wochenziel.' : '🏖️ Schönen Urlaub! Du zählst gerade nicht mit.', true);
+  render();
+}
+function endAway(p = me(), quiet = false) {
+  const a = awayNow(p);
+  if (!a) return;
+  if (a.from >= todayStr()) p.away = p.away.filter(x => x !== a); // am selben Tag zurück = nie weg gewesen
+  else a.to = addDays(todayStr(), -1);
+  if (!quiet) { save(); toast('💪 Willkommen zurück!', true); render(); }
+}
 function setGoal(p, draft) {
   const cur = p.goal, wk = weekKey();
   const lowers = cur && ACTIVITIES.some(a => (draft[a.id] || 0) < (cur[a.id] || 0));
@@ -215,9 +232,10 @@ function normalizeHero(p, name = '') {
   const fresh = newHero(name);
   p = { ...fresh, ...p };
   for (const k of ['stats', 'counts', 'equip', 'life']) p[k] = { ...fresh[k], ...p[k] };
-  for (const k of ['dmg', 'claimed']) p[k] = p[k] || {};
+  for (const k of ['dmg', 'claimed', 'reacts']) p[k] = p[k] || {};
+  if (!p.cheerSent || typeof p.cheerSent !== 'object') p.cheerSent = {};
   p.tactics = asList(p.tactics).length === 3 ? asList(p.tactics) : fresh.tactics;
-  for (const k of ['inv', 'log', 'reports', 'outgoing', 'incoming']) p[k] = asList(p[k]);
+  for (const k of ['inv', 'log', 'reports', 'outgoing', 'incoming', 'away']) p[k] = asList(p[k]);
   for (const r of p.reports) r.rounds = asList(r.rounds);
   for (const d of [...p.outgoing, ...p.incoming]) d.tactics = asList(d.tactics);
   for (const e of p.log) { e.mults = asList(e.mults); e.got = e.got || {}; }
@@ -260,6 +278,7 @@ let goalOpen = false, goalDraft = {};
 let bossFold = true;      // Einsatz & Regeln auf der Jagd-Seite eingeklappt
 const openFolds = new Set(['f2']); // aufgeklappte Abschnitte unter „Mehr“
 let goalFold = true;
+const RECAP_KEY = 'hantelhelden-recap' + DEVICE;
 let calFold = false;      // Kalender aufgeklappt
 let dayOpen = null;       // Tages-Fenster im Kalender
 let backfillDay = null;   // Training wird für diesen vergangenen Tag nachgetragen
@@ -286,9 +305,16 @@ const othersOf = p => team().filter(x => x !== p);
 // Wer zählt an Tag d für den Schweinehund? Dabei (ab Beitritt) und in den letzten 7 Tagen trainiert –
 // die ersten 7 Tage nach Jagd-Start bzw. Beitritt zählt jeder. Für künftige Tage gilt der heutige Stand.
 const trainedDay = (p, d) => (p.dmg[d] || 0) > 0;
+const AWAY = { krank: { icon: '🤒', name: 'krank' }, urlaub: { icon: '🏖️', name: 'im Urlaub' } };
+const awayOn = (p, d) => p.away.find(a => d >= a.from && (!a.to || d <= a.to)) || null;
+const awayNow = p => p.away.find(a => !a.to) || null;
 function activeOn(p, d) {
   if (d > todayStr()) d = todayStr();
-  const from = p.joined && p.joined > state.season.start ? p.joined : state.season.start;
+  if (awayOn(p, d)) return false;
+  // nach Krankheit/Urlaub: wieder 7 Tage Schonfrist
+  const back = p.away.filter(a => a.to && a.to < d).map(a => addDays(a.to, 1)).sort().pop() || '';
+  let from = p.joined && p.joined > state.season.start ? p.joined : state.season.start;
+  if (back > from) from = back;
   if (d < from) return false;
   if (daysBetween(from, d) < REST_DAYS) return true;
   for (let k = 0; k < REST_DAYS; k++) if (trainedDay(p, addDays(d, -k))) return true;
@@ -331,7 +357,7 @@ function sendEvent(pid, ev) {
 }
 
 function applyEvent(p, ev) {
-  if (ev.kind === 'challenge') {
+  if (ev.kind === 'challenge' && false) {
     if (!p.incoming.some(d => d.id === ev.duel.id)) {
       p.incoming.push(ev.duel);
       if (p === me()) toast(`🥊 ${ev.duel.fromName} fordert dich zum Sparring!`, true);
@@ -445,7 +471,15 @@ function goalRate(p) {
   if (!wks.length) return null;
   const total = goalTotal(p);
   if (!total) return 0;
-  return sum(wks.map(wk => sum(ACTIVITIES.map(a => Math.min(goalOf(p, a.id), weekSessions(p, a.id, wk)))))) / (total * wks.length);
+  let done = 0, need = 0;
+  for (const wk of wks) {
+    let free = 0;
+    for (let k = 0; k < 7; k++) if (!awayOn(p, addDays(wk, k))) free++;
+    const n = total * free / 7;
+    need += n;
+    done += Math.min(n, sum(ACTIVITIES.map(a => Math.min(goalOf(p, a.id), weekSessions(p, a.id, wk)))));
+  }
+  return need ? done / need : 1;
 }
 function stakeLoser() {
   const ps = team();
@@ -664,7 +698,10 @@ function daysLeft() { return Math.max(0, daysBetween(todayStr(), seasonEnd())); 
 
 // Saisonende: Schweinehund besiegt oder Zeit abgelaufen
 function checkSeason() {
-  if (state.season.result) return false;
+  if (state.season.result) {
+    if (todayStr() >= seasonEnd()) { newSeason(true); return true; }
+    return false;
+  }
   const b = bossState();
   if (b.hp <= 0) state.season.result = { won: true, day: todayStr() };
   else if (todayStr() >= seasonEnd()) state.season.result = { won: false, day: addDays(seasonEnd(), -1) };
@@ -707,6 +744,7 @@ function resolveAll() {
   let changed = reconcileOwn();
   changed = checkSeason() || changed;
   for (const p of mine()) {
+    changed = recalcHero(p) || changed;
     changed = claimRewards(p) || changed;
     changed = expireDuels(p) || changed;
     if (p.cheer && p.cheer.until < Date.now()) { p.cheer = null; changed = true; }
@@ -731,16 +769,28 @@ function dropLoot(p, minRarity = 0) {
   p.inv.unshift(item);
   if (rar.id === 'legendary') p.life.legendaries++;
   const old = p.inv.find(i => i.uid === p.equip[g.slot]);
-  item.upgrade = !old || powerOf(item) > powerOf(old);
+  item.upgrade = !old || valueFor(p, item) > valueFor(p, old);
   autoEquip(p);
   return item;
 }
 // Ausrüstung verwaltet sich selbst: pro Platz das stärkste Teil, dazu die letzten paar Funde
+// Haupt-Trainingsart der letzten 30 Tage (nach Minuten) → passende Teile werden bevorzugt
+function mainType(p) {
+  const m = { str: 0, end: 0, mind: 0 }, from = addDays(todayStr(), -30);
+  for (const e of p.log) if (e.kind === 'train' && e.day >= from) for (const x of partsOf(e)) { const a = byId(ACTIVITIES, x.id); if (a) m[a.type] += x.min || 0; }
+  return Object.keys(m).sort((x, y) => m[y] - m[x])[0];
+}
+// Wert eines Teils für diesen Helden: Teile für andere Trainingsarten zählen nur ein Drittel
+function valueFor(p, it, main = mainType(p)) {
+  const t = gearOf(it).type;
+  return ['str', 'end', 'mind'].includes(t) && t !== main ? powerOf(it) / 3 : powerOf(it);
+}
 function autoEquip(p) {
+  const main = mainType(p);
   for (const slot of Object.keys(SLOTS)) {
     const cur = p.inv.find(i => i.uid === p.equip[slot]);
-    const best = p.inv.filter(i => gearOf(i).slot === slot).sort((a, b) => powerOf(b) - powerOf(a))[0];
-    if (best && (!cur || powerOf(best) > powerOf(cur))) p.equip[slot] = best.uid;
+    const best = p.inv.filter(i => gearOf(i).slot === slot).sort((a, b) => valueFor(p, b, main) - valueFor(p, a, main))[0];
+    if (best && (!cur || valueFor(p, best, main) > valueFor(p, cur, main))) p.equip[slot] = best.uid;
     if (!best) p.equip[slot] = null;
   }
   const worn = new Set(Object.values(p.equip));
@@ -795,6 +845,73 @@ function damageOf(p, a, { pr = false, timing = 1, crit = false, min = a.step, of
   for (let m = 0; m < min; m += 5) fall += falloffAt(done + m);
   add('Erholung nötig', fall / Math.ceil(min / 5));
   return { dmg: Math.round(dmg), mults };
+}
+
+const LOG_MAX = 1000;
+function trimLog(p) {
+  if (p.log.length > LOG_MAX) p.log.length = LOG_MAX;
+  const old = addDays(todayStr(), -45);
+  for (const e of p.log) if (e.day < old && e.mults && e.mults.length) e.mults = [];
+}
+
+/* ---------- Einmalige Neuberechnung bisheriger Trainings mit den heutigen Regeln ----------
+   Übernommen wird, was damals passiert ist (Krit, Minispiel, Rekord, Anfeuern, Comeback);
+   neu gerechnet werden Werte-Bonus (gedeckelt), Ausrüstung (Stufen), Gesund-Haken (2 %), keine Talente. */
+
+function recalcHero(p) {
+  if ((p.recalc || 0) >= RECALC_V) return false;
+  const known = id => ACTIVITIES.some(a => a.id === id);
+  const trains = p.log.filter(e => e.kind === 'train');
+  const st = { ...p.stats };
+  for (const e of trains) for (const k in (e.got || {})) st[k] = Math.max(BASE_STAT, st[k] - e.got[k]);
+  const order = [...trains].sort((x, y) => (x.day < y.day ? -1 : x.day > y.day ? 1 : x.t - y.t));
+  const trainDays = new Set(Object.keys(p.dmg).filter(d => p.dmg[d] > 0));
+  const gear = equippedItems(p), minsDone = {};
+  for (const e of order) {
+    const parts = partsOf(e);
+    if (parts.length && parts.every(x => known(x.id))) {
+      const was = Object.fromEntries(asList(e.mults).map(x => [x.label, x.f]));
+      let cd = 0;
+      for (let k = 0; k < 7; k++) if (k === 0 || trainDays.has(addDays(e.day, -k))) cd++;
+      const comboF = Math.min(1.5, 1 + 0.1 * Math.max(0, cd - 1));
+      const hs = p.log.filter(h => h.kind === 'health' && h.day === e.day && h.t < e.t && HEALTH_NOW.some(x => x.id === h.id)).length;
+      let total = 0, offset = minsDone[e.day] || 0, prLeft = !!e.pr, top = -1, mults = [];
+      for (const x of parts) {
+        const a = byId(ACTIVITIES, x.id), min = x.min || a.step, n = Math.max(1, Math.round(min / a.step));
+        const ms = [];
+        let dmg = n * a.base * (1 + statBonus(st[a.type]));
+        const add = (label, f) => { if (f !== 1) { ms.push({ label, f }); dmg *= f; } };
+        let g = 0;
+        for (const it of gear) if ((it.at || 0) <= e.t) {
+          const gg = gearOf(it), pw = powerOf(it);
+          if (gg.type === a.type) g += pw;
+          if (gg.type === 'all' || gg.type === 'scan') g += pw / 2;
+        }
+        add('Ausrüstung', 1 + g / 100);
+        add('Combo', comboF);
+        if (prLeft && a.pr) { add('Neuer Rekord', 1 + (PR_MULT - 1) / n); prLeft = false; }
+        if (e.crit) add('Kritisch', CRIT_MULT);
+        add('Schlag', was['Schlag'] || 1);
+        if (e.usedCheer) add('Angefeuert', CHEER_MULT);
+        if (was['Comeback']) add('Comeback', COMEBACK_MULT);
+        add('Gesund gelebt', 1 + HEALTH_BONUS * hs);
+        let fall = 0;
+        for (let m = 0; m < min; m += 5) fall += falloffAt(offset + m);
+        add('Erholung nötig', fall / Math.ceil(min / 5));
+        dmg = Math.round(dmg);
+        total += dmg;
+        if (dmg > top) { top = dmg; mults = ms; }
+        offset += min;
+      }
+      p.dmg[e.day] = Math.max(0, (p.dmg[e.day] || 0) + total - (e.dmg || 0));
+      e.dmg = total;
+      e.mults = mults;
+    }
+    minsDone[e.day] = (minsDone[e.day] || 0) + sum(parts.map(x => x.min || 0));
+    for (const k in (e.got || {})) st[k] += e.got[k];
+  }
+  p.recalc = RECALC_V;
+  return true;
 }
 
 /* =========================================================
@@ -852,6 +969,7 @@ function doTrain(pend, timing, grade) {
   const { parts, pr } = pend;
   const a = parts[0].a;
   pending = null;
+  if (!dayOverride) endAway(p, true);
   const L = p.life;
   const before = { level: levelOf(p), rank: rankOf(L), badges: earnedBadges(L).length, boss: bossState().hp, mon: monsterOfWeek().hp, stats: { ...p.stats } };
   const crit = Math.random() < critChance(p);
@@ -885,7 +1003,7 @@ function doTrain(pend, timing, grade) {
   const item = firstToday ? dropLoot(p, 0) : null;
   p.log.unshift({ t: Date.now(), day: todayStr(), kind: 'train', id: a.id, parts: logParts, min, dmg, got, energy, pr, crit, firstToday,
     usedCheer, item: item ? item.uid : null, mults });
-  p.log.length = Math.min(p.log.length, 200);
+  trimLog(p);
   const gk = 'g' + weekKey();
   if (goalReached(p) && !p.claimed[gk]) {
     p.claimed[gk] = true;
@@ -908,20 +1026,73 @@ function health(id) {
   const p = me(), day = sheetOpen && backfillDay ? backfillDay : todayStr();
   if (withDay(day, () => healthToday(p)).includes(id)) return;
   p.log.unshift({ t: Date.now(), day, kind: 'health', id });
+  trimLog(p);
   save();
   toast(`${byId(HEALTH, id).icon} +2 % Schaden auf deine Trainings ${day === todayStr() ? 'heute' : 'an dem Tag'}`);
   render();
 }
 
-function cheer() {
-  const p = me(), others = othersOf(p);
-  if (p.cheerSent === todayStr() || !others.length) return;
-  p.cheerSent = todayStr();
+function cheer(pid) {
+  const p = me(), o = state.players[pid];
+  if (!o || o === p || p.cheerSent[pid] === todayStr()) return;
+  p.cheerSent[pid] = todayStr();
   p.life.cheers++;
-  for (const o of others) sendEvent(idOf(o), { kind: 'cheer', from: p.name });
+  sendEvent(pid, { kind: 'cheer', from: p.name });
   save();
-  toast(`📣 ${others.map(o => o.name).join(' und ')} angefeuert – nächstes Training +25 %!`);
+  toast(`📣 ${o.name} angefeuert – nächstes Training +25 %!`);
   render();
+}
+const lastTrain = p => Object.keys(p.dmg).filter(d => p.dmg[d] > 0 && d <= todayStr()).sort().pop() || null;
+function cheerRow(p) {
+  const os = othersOf(p);
+  if (!os.length) return '';
+  const since = o => { const l = lastTrain(o); return l ? daysBetween(l, todayStr()) : 99; };
+  const sorted = [...os].sort((x, y) => since(y) - since(x));
+  return `<div class="cheer-row"><small>📣 Anfeuern (+25 % aufs nächste Training):</small>
+    <div class="health">${sorted.map(o => { const id = idOf(o), done = p.cheerSent[id] === todayStr(), d = since(o);
+      const hint = awayNow(o) ? AWAY[awayNow(o).why].icon : d === 0 ? 'heute ✓' : d >= 99 ? 'noch nie' : d === 1 ? 'gestern' : `seit ${d} T.`;
+      return `<button class="chip-btn ${done ? 'done' : ''}" data-act="cheer" data-arg="${id}" ${done ? 'disabled' : ''}>${esc(o.name)} <small>${done ? '✓' : hint}</small></button>`; }).join('')}</div></div>`;
+}
+
+/* ---------- Team-Feed mit Reaktionen ---------- */
+const REACTS = ['👍', '🔥', '💪'];
+function feedItems() {
+  const from = addDays(todayStr(), -4), items = [];
+  for (const q of team()) {
+    const pid = idOf(q);
+    for (const e of q.log) if (e.kind === 'train' && e.day >= from) items.push({ q, pid, e, key: pid + ':' + e.t });
+  }
+  return items.sort((x, y) => y.e.t - x.e.t).slice(0, 6);
+}
+function reactionsOf(key) {
+  const out = [];
+  for (const q of team()) if (q.reacts && q.reacts[key]) out.push({ who: q, r: q.reacts[key] });
+  return out;
+}
+function react(arg) {
+  const [key, r] = arg.split('|');
+  const p = me();
+  if (key.startsWith(state.current + ':')) return;
+  if (p.reacts[key] === r) delete p.reacts[key]; else p.reacts[key] = r;
+  const old = Date.now() - 14 * DAY_MS;
+  for (const k of Object.keys(p.reacts)) if (Number(k.split(':')[1]) < old) delete p.reacts[k];
+  save();
+  render();
+}
+function feedCard() {
+  const items = feedItems();
+  if (!items.length) return '';
+  const p = me(), when = d => d === todayStr() ? 'heute' : d === addDays(todayStr(), -1) ? 'gestern' : new Date(d + 'T12:00').toLocaleDateString('de-DE', { weekday: 'short' });
+  return `<h2>Was im Team los ist</h2><section class="card feed">${items.map(({ q, pid, e, key }) => {
+    const parts = {};
+    for (const x of partsOf(e)) parts[x.id] = (parts[x.id] || 0) + x.min;
+    const what = Object.entries(parts).map(([a, m]) => `${actOf(a).icon} ${m} Min.`).join(' · ');
+    const rs = reactionsOf(key), mine = q === p, myR = p.reacts[key];
+    return `<div class="feed-row"><div class="feed-top"><i style="background:${PCOLOR[pid]}"></i><b>${mine ? 'Du' : esc(q.name)}</b>
+        <span>${what}</span><small>${when(e.day)}${e.added ? ' · nachgetragen' : ''}</small></div>
+      <div class="feed-reacts">${mine ? (rs.length ? rs.map(x => `<span title="${esc(x.who.name)}">${x.r} ${esc(x.who.name)}</span>`).join('') : '<small>noch keine Reaktion</small>')
+        : REACTS.map(r => { const n = rs.filter(x => x.r === r).length; return `<button class="react ${myR === r ? 'on' : ''}" data-act="react" data-arg="${key}|${r}">${r}${n ? ` ${n}` : ''}</button>`; }).join('')}</div></div>`;
+  }).join('')}</section>`;
 }
 
 function equip(uid) {
@@ -979,23 +1150,36 @@ function setPact() {
   render();
 }
 
-function newSeason() {
+function seasonSummary() {
+  const start = state.season.start, end = state.season.result ? addDays(state.season.result.day, 1) : seasonEnd();
+  return team().map(p => {
+    let days = 0, min = 0;
+    for (let d = start; d < end && d <= todayStr(); d = addDays(d, 1)) if (trainedDay(p, d)) days++;
+    for (const e of p.log) if (e.kind === 'train' && e.day >= start && e.day < end) min += sum(partsOf(e).map(x => x.min || 0));
+    const rate = goalRate(p);
+    return { name: p.name, days, min, dmg: Math.round(seasonDamage(p)), rate: rate === null ? null : Math.round(rate * 100) };
+  }).sort((x, y) => y.dmg - x.dmg);
+}
+function newSeason(auto = false) {
   const r = state.season.result;
   if (!r) return;
   const ch = state.season.chapter;
   const sl = !r.won && state.stake ? stakeLoser() : null;
   state.hall.unshift({ no: state.season.no, chapter: ch, won: r.won, day: r.day, pact: state.pact,
     paid: sl ? `${sl.payer.name} → ${sl.winner.name}: ${state.stake}` : '',
-    mvp: [...team()].sort((x, y) => seasonDamage(y) - seasonDamage(x))[0].name });
+    mvp: [...team()].sort((x, y) => seasonDamage(y) - seasonDamage(x))[0].name,
+    start: state.season.start, end: r.day, max: bossState().max, stats: seasonSummary() });
+  // automatisch: neue Jagd beginnt am 1. (auch wenn erst später jemand die App öffnet)
+  const start = auto ? seasonEnd() : todayStr();
   const carry = {};
-  for (const [id, p] of Object.entries(state.players)) carry[id] = p.dmg[todayStr()] || 0;
-  state.season = { no: state.season.no + 1, chapter: r.won ? ch + 1 : ch, start: todayStr(), end: monthEnd(todayStr()), result: null, carry };
+  if (start === r.day) for (const [id, p] of Object.entries(state.players)) carry[id] = p.dmg[start] || 0;
+  state.season = { no: state.season.no + 1, chapter: r.won ? ch + 1 : ch, start, end: monthEnd(start), result: null, carry };
   state.pact = '';
   metaSet({ hall: state.hall, season: state.season, pact: '' });
   save();
   toast(r.won ? `🐷 Kapitel ${state.season.chapter}: Der Schweinehund ist zurück – und stärker!` : '🐷 Revanche! Diesmal kriegt ihr ihn.', true);
   render();
-  setTimeout(setPact, 400);
+  if (!auto) setTimeout(setPact, 400);
 }
 
 function reset() {
@@ -1162,6 +1346,11 @@ const actions = {
   bossfold: () => { bossFold = !bossFold; render(); },
   fold: k => { openFolds.has(k) ? openFolds.delete(k) : openFolds.add(k); render(); },
   sparwith: id => { sparTarget = id; render(); },
+  away: why => setAway(why),
+  react,
+  recapshare: () => shareRecap(),
+  recaphide: () => { try { localStorage.setItem(RECAP_KEY, String(state.hall[0] && state.hall[0].no)); } catch (e) { /* ignorieren */ } render(); },
+  endaway: () => endAway(),
   closesheet: () => { sheetOpen = false; backfillDay = null; render(); },
   stats: id => { statsOf = id; render(); },
   closestats: () => { statsOf = null; render(); },
@@ -1199,14 +1388,14 @@ function renderHeader() {
   const lead = Math.max(...team().map(p => weekDamage(p, wk)));
   document.getElementById('players').innerHTML = team().map(p => [idOf(p), p]).map(([id, p]) => `
     <button class="pchip ${id === state.current ? 'on' : ''} ${online() && id !== game.me ? 'other' : ''}" data-act="player" data-arg="${id}">
-      <b>${lead > 0 && weekDamage(p, wk) === lead ? '👑 ' : ''}${resting(p) ? '💤 ' : ''}${esc(p.name)}</b><small>${num(weekDamage(p, wk))} ⚡</small>
+      <b>${lead > 0 && weekDamage(p, wk) === lead ? '👑 ' : ''}${awayNow(p) ? AWAY[awayNow(p).why].icon + ' ' : resting(p) ? '💤 ' : ''}${esc(p.name)}</b><small>${num(weekDamage(p, wk))} ⚡</small>
     </button>`).join('');
   renderSyncDot();
   const p = me();
   const shown = tab === 'sparring' ? 'held' : tab;
   for (const btn of document.querySelectorAll('#tabs button')) btn.classList.toggle('on', btn.dataset.arg === shown);
   const badge = document.getElementById('spar-badge');
-  if (badge) badge.textContent = p.incoming.length || '';
+  if (badge) badge.textContent = '';
 }
 function renderSyncDot() { const el = document.getElementById('sync-dot'); if (el) el.className = online() ? (connected ? 'on' : 'off') : ''; }
 
@@ -1323,8 +1512,10 @@ function viewJagd() {
   const pct = b.hp / b.max;
   const res = state.season.result;
   const sl = stakeLoser();
+  const aw = awayNow(p);
   return `
-    ${incomingBanner(p)}
+    ${aw ? `<section class="banner away">${AWAY[aw.why].icon} <b>Du bist ${AWAY[aw.why].name} gemeldet.</b> Du zählst gerade nicht mit – weder für den Schweinehund noch fürs Wochenziel. <button class="btn small" data-act="endaway">Wieder da 💪</button></section>` : ''}
+    ${recapCard()}
     <section class="card bosscard ${res ? (res.won ? 'won' : 'lost') : ''}">
       <div class="boss-head">
         <div><div class="eyebrow">Kapitel ${state.season.chapter} · ${res ? 'Jagd beendet' : `noch ${daysLeft()} Tage`}</div>
@@ -1350,8 +1541,64 @@ function viewJagd() {
 
     <div class="today">
       <span>Woche: ${team().map(x => `<b class="who-link" data-act="stats" data-arg="${idOf(x)}">${x === p ? 'Du' : esc(x.name)} ${goalTotal(x) ? `${goalDone(x)}/${goalTotal(x)}${goalReached(x) ? ' ✓' : ''}` : '–'}</b>`).join(' · ')}</span>
-      <button class="btn small" data-act="cheer" ${p.cheerSent === todayStr() || !others.length ? 'disabled' : ''}>${p.cheerSent === todayStr() ? '📣 angefeuert ✓' : '📣 anfeuern'}</button>
-    </div>`;
+    </div>
+    ${cheerRow(p)}
+    ${feedCard()}`;
+}
+
+/* ---------- Monatsrückblick ---------- */
+function recapData() {
+  const res = state.season.result;
+  if (res) return { no: state.season.no, chapter: state.season.chapter, won: res.won, start: state.season.start, end: res.day,
+    stats: seasonSummary(), live: true, payer: !res.won && state.stake && stakeLoser() ? stakeLoser().payer.name : '', stake: state.stake, pact: state.pact };
+  const h = state.hall[0];
+  let hidden = null;
+  try { hidden = localStorage.getItem(RECAP_KEY); } catch (e) { /* ignorieren */ }
+  if (!h || !h.stats || hidden === String(h.no) || todayStr() > addDays(state.season.start, 6)) return null;
+  return { no: h.no, chapter: h.chapter, won: h.won, start: h.start, end: h.end, stats: asList(h.stats), live: false,
+    payer: h.paid ? h.paid.split(' → ')[0] : '', stake: h.paid ? h.paid.split(': ').slice(1).join(': ') : '', pact: h.pact };
+}
+function recapCard() {
+  const r = recapData();
+  if (!r) return '';
+  const fmt = d => new Date(d + 'T12:00').toLocaleDateString('de-DE', { day: 'numeric', month: 'numeric' });
+  return `<section class="card recap ${r.won ? 'won' : 'lost'}">
+    <div class="goal-top"><b>${r.won ? '🏆' : '😤'} Rückblick Jagd ${r.no} · ${fmt(r.start)}–${fmt(r.end)}</b>${r.live ? '' : '<button class="btn small ghost" data-act="recaphide">✕</button>'}</div>
+    <p class="hint">${r.won ? `Schweinehund besiegt – Kapitel ${r.chapter} geschafft!${r.pact ? ` Pakt: ${esc(r.pact)} 🎉` : ''}` : `Er hat überlebt.${r.payer ? ` <b>${esc(r.payer)}</b> zahlt ${esc(r.stake)}.` : ''}`}</p>
+    <div class="list">${r.stats.map((x, i) => `<div class="row"><span>${['🥇', '🥈', '🥉'][i] || '·'} <b>${esc(x.name)}</b> <small>${x.days} Tage · ${x.min} Min.${x.rate !== null ? ` · Ziel ${x.rate} %` : ''}</small></span><b>${num(x.dmg)}</b></div>`).join('')}</div>
+    <button class="btn" data-act="recapshare">📤 Als Bild teilen</button>
+  </section>`;
+}
+async function shareRecap() {
+  const r = recapData();
+  if (!r) return;
+  const c = document.createElement('canvas'), W = 1080, H = 1350;
+  c.width = W; c.height = H;
+  const g = c.getContext('2d'), F = 'system-ui, -apple-system, Segoe UI, Roboto, sans-serif';
+  g.fillStyle = '#14161b'; g.fillRect(0, 0, W, H);
+  g.fillStyle = '#ff6a33'; g.font = `900 54px ${F}`; g.fillText('HANTELHELDEN', 80, 130);
+  g.fillStyle = '#f4f5f7'; g.font = `800 64px ${F}`;
+  g.fillText(`${r.won ? '🏆 Geschafft!' : '😤 Knapp vorbei'}`, 80, 250);
+  const fmt = d => new Date(d + 'T12:00').toLocaleDateString('de-DE', { day: 'numeric', month: 'long' });
+  g.fillStyle = '#9aa1ab'; g.font = `500 38px ${F}`;
+  g.fillText(`Jagd ${r.no} · ${fmt(r.start)} – ${fmt(r.end)}`, 80, 320);
+  let y = 440;
+  r.stats.forEach((x, i) => {
+    g.fillStyle = i === 0 ? '#f2b233' : '#f4f5f7'; g.font = `800 48px ${F}`;
+    g.fillText(`${['🥇', '🥈', '🥉'][i] || '  '} ${x.name}`, 80, y);
+    g.textAlign = 'right'; g.fillText(num(x.dmg), W - 80, y); g.textAlign = 'left';
+    g.fillStyle = '#9aa1ab'; g.font = `500 34px ${F}`;
+    g.fillText(`${x.days} Trainingstage · ${x.min} Minuten${x.rate !== null ? ` · Ziel ${x.rate} %` : ''}`, 140, y + 50);
+    y += 150;
+  });
+  g.fillStyle = '#f4f5f7'; g.font = `700 40px ${F}`;
+  if (r.won && r.pact) g.fillText(`🎉 Jetzt fällig: ${r.pact}`, 80, H - 160);
+  if (!r.won && r.payer) g.fillText(`😬 ${r.payer} zahlt ${r.stake}`, 80, H - 160);
+  g.fillStyle = '#9aa1ab'; g.font = `500 32px ${F}`; g.fillText('Jagd auf den inneren Schweinehund 🐷', 80, H - 80);
+  const blob = await new Promise(ok => c.toBlob(ok, 'image/png'));
+  const file = new File([blob], `hantelhelden-jagd-${r.no}.png`, { type: 'image/png' });
+  try { if (navigator.canShare && navigator.canShare({ files: [file] })) { await navigator.share({ files: [file], title: 'Hantelhelden' }); return; } } catch (e) { return; }
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = file.name; a.click();
 }
 
 /* ---------- Kalender: wer hat wann trainiert ---------- */
@@ -1372,7 +1619,7 @@ function daySheet() {
     const dmg = (p.dmg[d] || 0);
     const body = Object.keys(parts).length
       ? Object.entries(parts).map(([a, m]) => `<span>${actOf(a).icon} ${actOf(a).name} · ${m} Min.</span>`).join('')
-      : dmg ? '<span>trainiert</span>' : '<span class="muted">kein Training</span>';
+      : dmg ? '<span>trainiert</span>' : awayOn(p, d) ? `<span>${AWAY[awayOn(p, d).why].icon} ${AWAY[awayOn(p, d).why].name}</span>` : '<span class="muted">kein Training</span>';
     return `<div class="day-row"><div class="day-who"><i style="background:${PCOLOR[id]}"></i><b>${esc(p.name)}${p === p0 ? ' (du)' : ''}</b>
         ${dmg ? `<small>−${num(dmg)} Schaden</small>` : ''}</div>
       <div class="day-what">${body}${hs ? `<span>${hs}</span>` : ''}${trains.some(e => e.added) ? '<small>📅 nachgetragen</small>' : ''}</div></div>`;
@@ -1503,7 +1750,7 @@ function statsSheet() {
         <h3>Insgesamt</h3>
         <div class="list">
           ${row('🏋️ Trainings', L.sessions)}${row('📅 Trainingstage', L.days)}${row('🏆 Rekorde', L.prs)}
-          ${row('👹 Monster erledigt', L.monsters)}${row('🥊 Sparring gewonnen', `${L.wins} von ${L.duels}`)}
+          ${row('👹 Monster erledigt', L.monsters)}${row('📣 Angefeuert', L.cheers)}
           ${Object.entries(STATS).map(([k, st]) => row(`${st.icon} ${st.name}`, p.stats[k])).join('')}
         </div>
         <button class="btn small ghost reset-hero" data-act="resethero" data-arg="${statsOf}">♻️ Daten von ${esc(p.name)} zurücksetzen</button>
@@ -1584,7 +1831,6 @@ function revealOverlay() {
 function viewHeld() {
   const p = me(), lvl = levelOf(p), others = othersOf(p);
   return `
-    ${incomingBanner(p)}
     <section class="card hero-card">
       ${heroSvg(p, 'big')}
       <div class="hero-side">
@@ -1602,9 +1848,7 @@ function viewHeld() {
       const g = gearOf(it), r = rarityOf(it);
       return `<div class="card gslot" style="--rar:${r.color}"><span class="item-icon">${g.icon}</span><b>${g.name}</b><small class="rar">${r.name} · St. ${it.lv || 1}</small><small>${itemBonusText(it)}</small></div>`;
     }).join('')}</div>
-
-    <button class="btn big spar-btn" data-act="tab" data-arg="sparring" ${others.length ? '' : 'disabled'}>🥊 Sparring${others.length ? ` gegen ${others.map(o => esc(o.name)).join(' oder ')}` : ' – lade erst jemanden ein'}
-      <small>${p.incoming.length ? `${p.incoming.length} Herausforderung offen!` : `⚡ ${p.energy}/${ENERGY_MAX} Energie`}</small></button>`;
+`;
 }
 
 /* ---------- Sparring ---------- */
@@ -1780,6 +2024,8 @@ function viewProfil() {
       ${ownIds().map(id => `<div class="row"><span>🧑 ${esc(state.players[id].name)}</span><button class="btn small" data-act="rename" data-arg="${id}">Umbenennen</button></div>`).join('')}
       ${online() ? `
         <div class="row"><span>${connected ? '🟢 Online verbunden' : '🟠 Gerade offline – wird nachgeholt'}</span></div>
+        ${awayNow(me()) ? `<div class="row"><span>${AWAY[awayNow(me()).why].icon} Du bist ${AWAY[awayNow(me()).why].name} gemeldet</span><button class="btn small" data-act="endaway">Wieder da</button></div>`
+          : '<div class="row"><span>🤒 Krank oder 🏖️ Urlaub?</span><span><button class="btn small" data-act="away" data-arg="krank">🤒 Krank</button> <button class="btn small" data-act="away" data-arg="urlaub">🏖️ Urlaub</button></span></div>'}
         <div class="row"><span>🔗 Einladungslink</span><button class="btn small" data-act="share">Teilen</button></div>
         <div class="row"><span>📱 Dieses Gerät abmelden</span><button class="btn small" data-act="leave">Abmelden</button></div>
         <div class="row"><span>♻️ Meine Daten zurücksetzen</span><button class="btn small" data-act="resetmine">Zurücksetzen</button></div>
@@ -1869,10 +2115,12 @@ const INTRO = [
         <li>💪 Training steigert Kraft, Ausdauer und Geist – das macht dich stärker.</li>
         <li>👹 Jede Woche taucht ein <b>Ausreden-Monster</b> auf – wer es erledigt, bekommt epische Beute.</li>
       </ul>` },
-  { pic: () => '<div class="intro-icon">🥊</div>', title: 'Sparring & Saison',
+  { pic: () => '<div class="intro-icon">🤝</div>', title: 'Team & Monat',
     body: `<ul class="intro-list">
-        <li>🥊 <b>Sparring:</b> Fordere deinen Partner heraus. Wähle 3 Taktiken – 🏃 schlägt 💥, 🥷 schlägt 🏃, 💥 schlägt 🥷. Er hat ${CHALLENGE_H} Stunden zum Antworten.</li>
-        <li>⚡ Die Energie dafür bekommst du durchs Training.</li>
+        <li>📣 <b>Anfeuern:</b> Gib einem Mitspieler +25 % auf sein nächstes Training – am besten dem, der länger nicht da war.</li>
+        <li>🔥 Reagiere auf die Trainings der anderen und sieh im 📅 Kalender, wer wann trainiert hat.</li>
+        <li>🤒 Krank oder 🏖️ im Urlaub? Melde dich unter ☰ Mehr ab – dann zählst du nicht mit.</li>
+        <li>📅 Am 1. jedes Monats startet automatisch die neue Jagd, mit Rückblick zum Teilen.</li>
         <li>👑 Wer pro Woche mehr Schaden macht, bekommt die <b>MVP-Krone</b>.</li>
         <li>🎁 Optional: Legt einen <b>Pakt</b> fest – eure echte Belohnung, wenn er fällt.</li>
       </ul>
