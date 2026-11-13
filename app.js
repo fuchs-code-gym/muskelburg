@@ -113,16 +113,6 @@ const RARITY = [
 ];
 const INV_MAX = 24;
 
-// Talente: Meilensteine je Wert, schalten echte Effekte frei
-const TALENTS = [
-  { stat: 'str',  at: 25, icon: '🔨', name: 'Wuchtschlag',  desc: '+15 % Kraft-Schaden' },
-  { stat: 'str',  at: 50, icon: '🏆', name: 'Rekordjäger',  desc: 'Volltreffer ×3 statt ×2,5' },
-  { stat: 'end',  at: 25, icon: '🌬️', name: 'Zweiter Atem', desc: 'Combo wächst doppelt so schnell' },
-  { stat: 'end',  at: 50, icon: '🏁', name: 'Marathon',     desc: '+25 % Ausdauer-Schaden' },
-  { stat: 'mind', at: 25, icon: '🎯', name: 'Fokus',        desc: '+10 % Chance auf kritische Treffer' },
-  { stat: 'mind', at: 50, icon: '🧘', name: 'Seelenruhe',   desc: 'Der Schweinehund heilt sich nur halb so stark' },
-];
-
 const RANKS = [
   { min: 0, icon: '🔰', name: 'Einsteiger' }, { min: 15, icon: '🥉', name: 'Fortgeschritten' }, { min: 40, icon: '🥈', name: 'Athlet' },
   { min: 80, icon: '🥇', name: 'Eisenathlet' }, { min: 150, icon: '💎', name: 'Profi' },
@@ -546,7 +536,6 @@ function nextRank(life) { return RANKS.find(r => r.min > life.sessions); }
 function earnedBadges(life) { return BADGES.filter(b => b.test(life)); }
 function idOf(p) { return Object.keys(state.players).find(id => state.players[id] === p); }
 function weekKey(d = new Date()) { const x = new Date(d); x.setDate(x.getDate() - (x.getDay() + 6) % 7); return todayStr(x); }
-const hasTalent = (p, stat, at) => p.stats[stat] >= at;
 
 // ein Eintrag kann mehrere Einheiten enthalten (z. B. 2× Kraft + 1× Ausdauer)
 const partsOf = e => e.parts ? asList(e.parts) : [{ id: e.id, n: 1, min: e.min || 10 }];
@@ -563,8 +552,7 @@ function comboDays(p) {
 function comboMult(p, extraToday = false) {
   let days = comboDays(p);
   if (extraToday && !p.dmg[todayStr()]) days++;
-  const step = hasTalent(p, 'end', 25) ? 0.2 : 0.1;
-  return Math.min(1.5, 1 + step * Math.max(0, days - 1));
+  return Math.min(1.5, 1 + 0.1 * Math.max(0, days - 1));
 }
 
 /* ---------- Saison & Schweinehund ---------- */
@@ -594,8 +582,7 @@ function bossMax() { return Math.round(BOSS_HP * chapterF() * teamF() * seasonLe
 function bossState() {
   const max = bossMax();
   const players = Object.values(state.players);
-  const half = players.some(p => hasTalent(p, 'mind', 50));
-  const regen = Math.round(BOSS_REGEN * chapterF() * teamF() * (half ? 0.5 : 1));
+  const regen = Math.round(BOSS_REGEN * chapterF() * teamF());
   const last = state.season.result ? state.season.result.day : todayStr();
   let hp = max, lazy = 0;
   for (let d = state.season.start; d <= last && d < seasonEnd(); d = addDays(d, 1)) {
@@ -718,7 +705,7 @@ function gearBonus(p, type) {
   return b / 100;
 }
 function critChance(p) {
-  let c = 0.05 + (p.stats.mind - BASE_STAT) / 400 + (hasTalent(p, 'mind', 25) ? 0.1 : 0);
+  let c = 0.05 + 0.3 * statBonus(p.stats.mind);
   for (const it of equippedItems(p)) if (gearOf(it).type === 'crit') c += rarityOf(it).power / 200;
   return Math.min(0.5, c);
 }
@@ -731,11 +718,9 @@ function damageOf(p, a, { pr = false, timing = 1, crit = false, min = a.step, of
   let dmg = n * a.base * (1 + statBonus(p.stats[a.type]));
   const add = (label, f) => { if (f !== 1) { mults.push({ label, f }); dmg *= f; } };
   add('Ausrüstung', 1 + gearBonus(p, a.type));
-  if (a.type === 'str' && hasTalent(p, 'str', 25)) add('Wuchtschlag', 1.15);
-  if (a.type === 'end' && hasTalent(p, 'end', 50)) add('Marathon', 1.25);
   add('Combo', comboMult(p, true));
   // Rekord = ein Block zählt als Volltreffer
-  if (pr) add('Neuer Rekord', 1 + ((hasTalent(p, 'str', 50) ? 3 : PR_MULT) - 1) / n);
+  if (pr) add('Neuer Rekord', 1 + (PR_MULT - 1) / n);
   if (crit) add('Kritisch', CRIT_MULT);
   add('Schlag', timing);
   if (p.cheer) add('Angefeuert', CHEER_MULT);
@@ -844,7 +829,6 @@ function doTrain(pend, timing, grade) {
   if (rankOf(L) !== before.rank) toast(`${rankOf(L).icon} Neuer Rang: ${rankOf(L).name}!`, true);
   const badges = earnedBadges(L);
   if (badges.length > before.badges) toast(`${badges[badges.length - 1].icon} Abzeichen: ${badges[badges.length - 1].name}!`, true);
-  for (const t of TALENTS) if (p.stats[t.stat] >= t.at && before.stats[t.stat] < t.at) toast(`${t.icon} Talent freigeschaltet: ${t.name}!`, true);
   render();
 }
 
@@ -1736,7 +1720,7 @@ const INTRO = [
     body: `<ul class="intro-list">
         <li>🔐 Beim ersten Training des Tages öffnet sich dein <b>Spind</b> mit zufälliger Ausrüstung – von gewöhnlich bis <b style="color:#f5b81c">legendär</b>.</li>
         <li>🦾 Bessere Teile legt dein Held automatisch an – sie machen dich stärker.</li>
-        <li>💪 Training steigert Kraft, Ausdauer und Geist und schaltet <b>Talente</b> frei.</li>
+        <li>💪 Training steigert Kraft, Ausdauer und Geist – das macht dich stärker.</li>
         <li>👹 Jede Woche taucht ein <b>Ausreden-Monster</b> auf – wer es erledigt, bekommt epische Beute.</li>
       </ul>` },
   { pic: () => '<div class="intro-icon">🥊</div>', title: 'Sparring & Saison',

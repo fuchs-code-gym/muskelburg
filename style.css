@@ -556,3 +556,29 @@ b.who-link { text-decoration: underline dotted; text-underline-offset: 3px; }
 .why { margin: 8px 0 12px; }
 .why small { display: block; color: var(--muted); margin-bottom: 5px; }
 .why .mults { margin: 0; }
+
+/* ---------- Farben: Orange = Hauptaktion, Grün = geschafft, Rot = Gegner ---------- */
+:root { --accent: #d4460e; --accent-2: #f06a2a; --muted: #5b626d; }
+@media (prefers-color-scheme: dark) { :root:not([data-theme="light"]) { --accent: #e0500f; --accent-2: #ff7a3d; --muted: #a7afba; } }
+:root[data-theme="dark"] { --accent: #e0500f; --accent-2: #ff7a3d; --muted: #a7afba; }
+
+/* Orange nur noch für die Hauptaktion */
+.pchip.on { background: #fff; border-color: #fff; color: #14161b; }
+.pchip.on small { color: #14161b; opacity: .65; }
+.tabs button.on { color: #fff; }
+.goalrow .go { color: var(--muted); }
+.row.me { background: var(--surface-2); margin: 0 -14px; padding-left: 14px; padding-right: 14px; }
+.row.me b { color: inherit; }
+
+/* Grün = geschafft */
+.boxes i.on, .goal-mini i.on { background: var(--good); border-color: var(--good); }
+.boxes i.on.extra { background: color-mix(in srgb, var(--good) 55%, var(--surface)); }
+.goalcard.reached { border-color: var(--good); box-shadow: 0 0 0 2px color-mix(in srgb, var(--good) 35%, transparent); }
+.chip-btn.done { opacity: 1; background: color-mix(in srgb, var(--good) 14%, var(--surface)); border-color: var(--good); color: var(--good); font-weight: 800; }
+.badge.on { border-color: var(--good); }
+
+/* Rot = der Gegner */
+.hpbar i { background: linear-gradient(90deg, #c81e2a, #e5383b); }
+
+/* Lesbarkeit */
+.hint { font-size: 13.5px; }
