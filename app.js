@@ -55,9 +55,12 @@ const falloffAt = m => m < 60 ? 1 : m < 90 ? 0.6 : 0.3;
 
 // Saison: der Schweinehund
 const SEASON_DAYS = 42;          // alte Saisons: 6 Wochen; neue: ein Monat (season.end)
-const BOSS_DAYS = 42;            // BOSS_HP gilt für 42 Tage – kürzere Saison = weniger Lebenspunkte
-const BOSS_HP = 10000, BOSS_REGEN = 250, CHAPTER_GROWTH = 1.3; // je Kapitel 30 % stärker
-const MONSTER_HP = 1800;
+// Eichung: „3× pro Woche 30 Min. Kraft + 10 Min. Aufwärmen“ schafft knapp 7.000 im Monat (gerechnet).
+// Werte gelten für 2 aktive Personen und 30 Tage; jede weitere aktive Person +50 %, wer ruht, zählt nicht.
+const BOSS_DAYS = 30;
+const BOSS_HP = 14000, BOSS_REGEN = 350, CHAPTER_GROWTH = 1.1; // je Kapitel 10 % stärker
+const MONSTER_HP = 2800;
+const REST_DAYS = 7;             // wer so lange nicht trainiert, ruht und zählt nicht für den Schweinehund
 const MONSTERS = [
   { id: 'kobold', name: 'Keine-Zeit-Kobold', icon: '⏰', quote: '„Heute passt es echt nicht …“' },
   { id: 'sofa',   name: 'Sofa-Golem',        icon: '🛋️', quote: '„Bleib doch noch fünf Minuten liegen.“' },
@@ -276,13 +279,21 @@ const mine = () => ownIds().map(id => state.players[id]);
 // Wer spielt mit? Online zählen nur Plätze, die jemand übernommen hat
 const team = () => PIDS.filter(id => state.players[id] && (!online() || id === game.me || state.players[id].updatedAt)).map(id => state.players[id]);
 const othersOf = p => team().filter(x => x !== p);
-// Späteinsteiger zählen nur anteilig für die restlichen Tage der Jagd
-function shareOf(p) {
-  const len = daysBetween(state.season.start, seasonEnd());
-  if (!p.joined || p.joined <= state.season.start || len <= 0) return 1;
-  return Math.max(0, Math.min(1, daysBetween(p.joined, seasonEnd()) / len));
+// Wer zählt an Tag d für den Schweinehund? Dabei (ab Beitritt) und in den letzten 7 Tagen trainiert –
+// die ersten 7 Tage nach Jagd-Start bzw. Beitritt zählt jeder. Für künftige Tage gilt der heutige Stand.
+const trainedDay = (p, d) => (p.dmg[d] || 0) > 0;
+function activeOn(p, d) {
+  if (d > todayStr()) d = todayStr();
+  const from = p.joined && p.joined > state.season.start ? p.joined : state.season.start;
+  if (d < from) return false;
+  if (daysBetween(from, d) < REST_DAYS) return true;
+  for (let k = 0; k < REST_DAYS; k++) if (trainedDay(p, addDays(d, -k))) return true;
+  return false;
 }
-const teamF = () => Math.max(1, sum(team().map(shareOf)) / 2); // Schweinehund wächst mit dem Team
+const resting = p => !activeOn(p, todayStr());
+// Team-Faktor an einem Tag: 2 Aktive = 1, je weitere +0,5; allein = 0,5 (mindestens einer zählt immer)
+const teamOn = d => Math.max(1, team().filter(p => activeOn(p, d)).length) / 2;
+const teamF = () => teamOn(todayStr());
 let sparTarget = null;    // Sparring-Gegner
 function sparOpp(p) {
   const os = othersOf(p);
@@ -616,17 +627,23 @@ function seasonDamage(p) { return sum(Object.keys(p.dmg).filter(inSeason).map(d 
 function weekDamage(p, wk = weekKey()) {
   return sum(Object.keys(p.dmg).filter(d => d >= wk && d < addDays(wk, 7) && inSeason(d)).map(d => dayDmg(p, d)));
 }
-function bossMax() { return Math.round(BOSS_HP * chapterF() * teamF() * seasonLenF() / 100) * 100; }
+// Lebenspunkte = Summe über alle Tage der Jagd: Tagesanteil × Team an diesem Tag × Kapitel
+function bossMax() {
+  let f = 0;
+  for (let d = state.season.start; d < seasonEnd(); d = addDays(d, 1)) f += teamOn(d);
+  return Math.round(BOSS_HP / BOSS_DAYS * chapterF() * f / 100) * 100;
+}
 // Lebenspunkte: Maximum − Schaden beider + Heilung an Tagen, an denen niemand trainiert hat
 function bossState() {
   const max = bossMax();
   const players = Object.values(state.players);
   const regen = Math.round(BOSS_REGEN * chapterF() * teamF());
+  const regenOn = d => Math.round(BOSS_REGEN * chapterF() * teamOn(d));
   const last = state.season.result ? state.season.result.day : todayStr();
   let hp = max, lazy = 0;
   for (let d = state.season.start; d <= last && d < seasonEnd(); d = addDays(d, 1)) {
     const dealt = sum(players.map(p => dayDmg(p, d)));
-    if (!dealt && d < todayStr()) { lazy++; hp = Math.min(max, hp + regen); }
+    if (!dealt && d < todayStr()) { lazy++; hp = Math.min(max, hp + regenOn(d)); }
     hp -= dealt;
   }
   return { hp: Math.max(0, Math.round(hp)), max, regen, lazy };
@@ -634,7 +651,8 @@ function bossState() {
 function monsterOfWeek(wk = weekKey()) {
   const i = Math.max(0, Math.floor(daysBetween(state.season.start, wk) / 7) + state.season.no) % MONSTERS.length;
   const m = MONSTERS[i];
-  const max = Math.round(MONSTER_HP * chapterF() * teamF());
+  const ref = addDays(wk, 6) < todayStr() ? addDays(wk, 6) : todayStr();
+  const max = Math.round(MONSTER_HP * chapterF() * teamOn(ref));
   const dealt = sum(Object.values(state.players).map(p => weekDamage(p, wk)));
   return { ...m, max, hp: Math.max(0, max - dealt), wk };
 }
@@ -1175,7 +1193,7 @@ function renderHeader() {
   const lead = Math.max(...team().map(p => weekDamage(p, wk)));
   document.getElementById('players').innerHTML = team().map(p => [idOf(p), p]).map(([id, p]) => `
     <button class="pchip ${id === state.current ? 'on' : ''} ${online() && id !== game.me ? 'other' : ''}" data-act="player" data-arg="${id}">
-      <b>${lead > 0 && weekDamage(p, wk) === lead ? '👑 ' : ''}${esc(p.name)}</b><small>${num(weekDamage(p, wk))} ⚡</small>
+      <b>${lead > 0 && weekDamage(p, wk) === lead ? '👑 ' : ''}${resting(p) ? '💤 ' : ''}${esc(p.name)}</b><small>${num(weekDamage(p, wk))} ⚡</small>
     </button>`).join('');
   renderSyncDot();
   const p = me();
@@ -1318,7 +1336,7 @@ function viewJagd() {
         <span>🏆 <b>Sieg:</b> ${state.pact ? esc(state.pact) : '<i>festlegen …</i>'}</span>
         <span>😬 <b>Niederlage:</b> ${state.stake ? `${sl ? esc(sl.payer.name) : 'größter Ziel-Rückstand'} zahlt ${esc(state.stake)}` : '<i>festlegen …</i>'}</span>
       </div>
-      <small class="boss-info">💤 Er heilt sich um ${num(b.regen)} an jedem Tag, an dem keiner trainiert.</small>`}
+      <small class="boss-info">💤 Er heilt sich um ${num(b.regen)} an jedem Tag, an dem keiner trainiert. Wer ${REST_DAYS} Tage nicht trainiert, ruht und zählt nicht für seine Lebenspunkte.</small>`}
     </section>
 
     ${p.cheer ? `<section class="banner cheer">📣 <b>${esc(p.cheer.from)} feuert dich an!</b> Dein nächstes Training macht +25 % Schaden.</section>` : ''}
@@ -1466,6 +1484,7 @@ function statsSheet() {
       <div class="ov-card sheet stats-sheet" data-stop="1">
         <div class="sheet-head"><h2>${esc(p.name)}${p === me() ? ' (du)' : ''}</h2><button class="btn small" data-act="closestats">✕</button></div>
         <p class="hint">${r.icon} ${r.name} · Level ${levelOf(p)} · 👑 ${L.crowns}× MVP</p>
+        ${resting(p) ? `<div class="banner">💤 <b>Ruht gerade</b> – seit ${REST_DAYS} Tagen kein Training, zählt deshalb nicht für den Schweinehund. Ein Training, und ${p === me() ? 'du bist' : esc(p.name) + ' ist'} wieder dabei.</div>` : ''}
         <h3>Diese Woche</h3>
         <div class="list">${ACTIVITIES.map(a => row(`${a.icon} ${a.name}`, `${weekSessions(p, a.id)}× · ${weekMinutes(p, a.id)} Min.${goalOf(p, a.id) ? ` <small>(Ziel ${goalOf(p, a.id)}×)</small>` : ''}`)).join('')}
           ${row('⚔️ Schaden', num(weekDamage(p)))}</div>
@@ -1819,7 +1838,8 @@ const INTRO = [
   { pic: () => bossSvg(1, 1), title: 'Euer Gegner: der innere Schweinehund',
     body: `<p>Er liegt auf dem Sofa, futtert Chips und lacht euch aus. Ihr seid ein Team aus zwei bis vier Leuten – und ihr jagt ihn <b>gemeinsam</b>.</p>
       <ul class="intro-list">
-        <li>🎯 <b>Ziel:</b> rund ${(Math.round(BOSS_HP * 30 / BOSS_DAYS / 100) * 100).toLocaleString('de-DE')} Lebenspunkte (je weitere Person +50 %) in <b>einem Monat</b> runterprügeln.</li>
+        <li>🎯 <b>Ziel:</b> ${BOSS_HP.toLocaleString('de-DE')} Lebenspunkte zu zweit (je weitere Person +${(BOSS_HP / 2).toLocaleString('de-DE')}) in <b>einem Monat</b> runterprügeln. Das schafft, wer 3× pro Woche Kraft trainiert.</li>
+        <li>💤 Wer ${REST_DAYS} Tage nicht trainiert, <b>ruht</b> und zählt nicht mehr – der Schweinehund schrumpft. Ein Training, und man ist wieder dabei.</li>
         <li>😴 An jedem Tag, an dem <b>keiner</b> trainiert, heilt er sich.</li>
         <li>🏆 Geschafft? Dann kommt Kapitel 2 – mit einem stärkeren Schweinehund.</li>
         <li>😬 Nicht geschafft? Dann zahlt, wer sein <b>eigenes Wochenziel</b> am deutlichsten verfehlt hat, den <b>Einsatz</b> – z. B. einen 🥙 Döner. So zählt Verlässlichkeit, nicht wer am stärksten ist.</li>
