@@ -51,8 +51,8 @@ const PR_MULT = 2.5;          // Neuer Rekord (Gewicht erhöht) = Volltreffer, 1
 const CRIT_MULT = 1.5;        // kritischer Treffer (Chance wächst mit Geist)
 const CHEER_MULT = 1.25;      // vom Partner angefeuert
 const COMEBACK_MULT = 1.25;   // wer in der Saison deutlich weniger Schaden hat
-// Erholung zählt: die ersten 120 Min. am Tag voll, bis 150 Min. 60 %, danach 30 %
-const falloffAt = m => m < 120 ? 1 : m < 150 ? 0.6 : 0.3;
+// Erholung zählt: die ersten 120 Min. am Tag voll, bis 150 Min. −10 %, danach −20 %
+const falloffAt = m => m < 120 ? 1 : m < 150 ? 0.9 : 0.8;
 
 // Saison: der Schweinehund
 const SEASON_DAYS = 42;          // alte Saisons: 6 Wochen; neue: ein Monat (season.end)
@@ -2285,7 +2285,7 @@ const INTRO = [
         <li>Der Schweinehund steckt ein, seine Lebensleiste sinkt.</li>
       </ol>
       <p class="hint">Mehr Schaden gibt es für: 🏆 neuen Rekord (Gewicht gesteigert, 1× am Tag), 🔥 regelmäßiges Training (Combo), 🥗 gesund gelebt (Schlaf, Essen, Trinken), 📣 Anfeuern vom Partner.</p>
-      <p class="hint">😮‍💨 <b>Erholung:</b> Pro Tag zählen die ersten 120 Minuten Training voll (alle Arten zusammen). Danach braucht der Körper Pause: bis 150 Min. zählt der Schaden zu 60 %, darüber zu 30 %. Verteilen lohnt sich also mehr als ein Mammut-Tag.</p>` },
+      <p class="hint">😮‍💨 <b>Erholung:</b> Pro Tag zählen die ersten 120 Minuten Training voll (alle Arten zusammen). Danach braucht der Körper Pause: bis 150 Min. gibt es 10 % weniger Schaden, darüber 20 % weniger.</p>` },
   { pic: () => '<div class="intro-icon">🎁</div>', title: 'Beute & dein Held',
     body: `<ul class="intro-list">
         <li>🔐 Beim ersten Training des Tages öffnet sich dein <b>Spind</b> mit zufälliger Ausrüstung – von gewöhnlich bis <b style="color:#f5b81c">legendär</b>. Je länger du dabei bist, desto höher die <b>Stufe</b> – und desto stärker die Teile.</li>
