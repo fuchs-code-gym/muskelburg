@@ -109,12 +109,16 @@ const GEAR = [
   { id: 'medaille',      slot: 'trinket', icon: '🏅', name: 'Siegermedaille',    type: 'all' },
 ];
 const RARITY = [
-  { id: 'common',    name: 'Gewöhnlich', color: '#9aa1ab', weight: 58, power: 4 },
-  { id: 'rare',      name: 'Selten',     color: '#2f6fed', weight: 28, power: 8 },
-  { id: 'epic',      name: 'Episch',     color: '#8e6bd8', weight: 11, power: 13 },
-  { id: 'legendary', name: 'Legendär',   color: '#f2b233', weight: 3,  power: 20 },
+  { id: 'common',    name: 'Gewöhnlich', color: '#9aa1ab', weight: 58, power: 1 },
+  { id: 'rare',      name: 'Selten',     color: '#2f6fed', weight: 28, power: 2 },
+  { id: 'epic',      name: 'Episch',     color: '#8e6bd8', weight: 11, power: 3 },
+  { id: 'legendary', name: 'Legendär',   color: '#f2b233', weight: 3,  power: 5 },
 ];
 const INV_MAX = 24;
+// Gegenstandsstufe: steigt alle 12 Trainingstage (≈ 1 Monat bei 3×/Woche). Bonus = Seltenheit × Stufe.
+// Alte Teile ohne Stufe zählen als Stufe 1.
+const LEVEL_DAYS = 12;
+const itemLevelFor = p => 1 + Math.floor((p.life.days || 0) / LEVEL_DAYS);
 
 const RANKS = [
   { min: 0, icon: '🔰', name: 'Einsteiger' }, { min: 15, icon: '🥉', name: 'Fortgeschritten' }, { min: 40, icon: '🥈', name: 'Athlet' },
@@ -723,11 +727,11 @@ function rollRarity(minIndex = 0) {
 function dropLoot(p, minRarity = 0) {
   const g = GEAR[Math.floor(Math.random() * GEAR.length)];
   const rar = rollRarity(minRarity);
-  const item = { uid: rid(), g: g.id, r: rar.id, at: Date.now() };
+  const item = { uid: rid(), g: g.id, r: rar.id, lv: itemLevelFor(p), at: Date.now() };
   p.inv.unshift(item);
   if (rar.id === 'legendary') p.life.legendaries++;
   const old = p.inv.find(i => i.uid === p.equip[g.slot]);
-  item.upgrade = !old || rar.power > rarityOf(old).power;
+  item.upgrade = !old || powerOf(item) > powerOf(old);
   autoEquip(p);
   return item;
 }
@@ -735,8 +739,8 @@ function dropLoot(p, minRarity = 0) {
 function autoEquip(p) {
   for (const slot of Object.keys(SLOTS)) {
     const cur = p.inv.find(i => i.uid === p.equip[slot]);
-    const best = p.inv.filter(i => gearOf(i).slot === slot).sort((a, b) => rarityOf(b).power - rarityOf(a).power)[0];
-    if (best && (!cur || rarityOf(best).power > rarityOf(cur).power)) p.equip[slot] = best.uid;
+    const best = p.inv.filter(i => gearOf(i).slot === slot).sort((a, b) => powerOf(b) - powerOf(a))[0];
+    if (best && (!cur || powerOf(best) > powerOf(cur))) p.equip[slot] = best.uid;
     if (!best) p.equip[slot] = null;
   }
   const worn = new Set(Object.values(p.equip));
@@ -744,18 +748,20 @@ function autoEquip(p) {
 }
 const gearOf = item => byId(GEAR, item.g);
 const rarityOf = item => byId(RARITY, item.r);
+const powerOf = item => rarityOf(item).power * (item.lv || 1);
 function equippedItems(p) { return Object.values(p.equip).map(uid => p.inv.find(i => i.uid === uid)).filter(Boolean); }
+const fmtPct = v => String(Math.round(v * 10) / 10).replace('.', ',');
 function itemBonusText(item) {
-  const g = gearOf(item), pw = rarityOf(item).power;
-  if (g.type === 'all') return `+${Math.round(pw / 2)} % Schaden`;
-  if (g.type === 'crit') return `+${Math.round(pw / 2)} % Krit-Chance`;
-  if (g.type === 'scan') return `+${Math.round(pw / 2)} % Schaden · verrät im Sparring die Gegner-Taktik`;
+  const g = gearOf(item), pw = powerOf(item);
+  if (g.type === 'all') return `+${fmtPct(pw / 2)} % Schaden`;
+  if (g.type === 'crit') return `+${fmtPct(pw / 2)} % Krit-Chance`;
+  if (g.type === 'scan') return `+${fmtPct(pw / 2)} % Schaden · verrät im Sparring die Gegner-Taktik`;
   return `+${pw} % ${STATS[g.type].icon} ${STATS[g.type].name}-Schaden`;
 }
 function gearBonus(p, type) {
   let b = 0;
   for (const it of equippedItems(p)) {
-    const g = gearOf(it), pw = rarityOf(it).power;
+    const g = gearOf(it), pw = powerOf(it);
     if (g.type === type) b += pw;
     if (g.type === 'all' || g.type === 'scan') b += pw / 2;
   }
@@ -763,7 +769,7 @@ function gearBonus(p, type) {
 }
 function critChance(p) {
   let c = 0.05 + 0.3 * statBonus(p.stats.mind);
-  for (const it of equippedItems(p)) if (gearOf(it).type === 'crit') c += rarityOf(it).power / 200;
+  for (const it of equippedItems(p)) if (gearOf(it).type === 'crit') c += powerOf(it) / 200;
   return Math.min(0.5, c);
 }
 
@@ -1027,7 +1033,7 @@ function fighterOf(p) {
   const bonus = { A: 0, B: 0, C: 0 };
   let scan = false, luck = 0;
   for (const it of equippedItems(p)) {
-    const g = gearOf(it), pw = rarityOf(it).power / 2;
+    const g = gearOf(it), pw = powerOf(it) / 2;
     if (TACTIC_OF[g.type]) bonus[TACTIC_OF[g.type]] += pw;
     if (g.type === 'all') for (const t in bonus) bonus[t] += pw / 2;
     if (g.type === 'crit') luck += 0.05;
@@ -1534,7 +1540,7 @@ function lootCard(it) {
   const g = gearOf(it), r = rarityOf(it);
   return `<div class="locker ${it.r}" style="--rar:${r.color}">
       <div class="locker-door"><span>SPIND</span></div>
-      <div class="loot"><span class="loot-icon">${g.icon}</span><b>${g.name}</b><small class="rar">${r.name}</small><small>${itemBonusText(it)}</small>${it.upgrade ? '<small class="up">✓ angelegt</small>' : ''}</div>
+      <div class="loot"><span class="loot-icon">${g.icon}</span><b>${g.name}</b><small class="rar">${r.name} · Stufe ${it.lv || 1}</small><small>${itemBonusText(it)}</small>${it.upgrade ? '<small class="up">✓ angelegt</small>' : ''}</div>
     </div>`;
 }
 
@@ -1590,7 +1596,7 @@ function viewHeld() {
       const it = p.inv.find(i => i.uid === p.equip[slot]);
       if (!it) return `<div class="card gslot empty"><span class="item-icon">❔</span><b>${label}</b><small>noch leer</small></div>`;
       const g = gearOf(it), r = rarityOf(it);
-      return `<div class="card gslot" style="--rar:${r.color}"><span class="item-icon">${g.icon}</span><b>${g.name}</b><small class="rar">${r.name}</small></div>`;
+      return `<div class="card gslot" style="--rar:${r.color}"><span class="item-icon">${g.icon}</span><b>${g.name}</b><small class="rar">${r.name} · St. ${it.lv || 1}</small><small>${itemBonusText(it)}</small></div>`;
     }).join('')}</div>
 
     <button class="btn big spar-btn" data-act="tab" data-arg="sparring" ${others.length ? '' : 'disabled'}>🥊 Sparring${others.length ? ` gegen ${others.map(o => esc(o.name)).join(' oder ')}` : ' – lade erst jemanden ein'}
@@ -1854,7 +1860,7 @@ const INTRO = [
       <p class="hint">Mehr Schaden gibt es für: 🏆 neuen Rekord (Gewicht gesteigert, 1× am Tag), 🔥 regelmäßiges Training (Combo), 🥗 gesund gelebt (Schlaf, Essen, Trinken), 📣 Anfeuern vom Partner.</p>` },
   { pic: () => '<div class="intro-icon">🎁</div>', title: 'Beute & dein Held',
     body: `<ul class="intro-list">
-        <li>🔐 Beim ersten Training des Tages öffnet sich dein <b>Spind</b> mit zufälliger Ausrüstung – von gewöhnlich bis <b style="color:#f5b81c">legendär</b>.</li>
+        <li>🔐 Beim ersten Training des Tages öffnet sich dein <b>Spind</b> mit zufälliger Ausrüstung – von gewöhnlich bis <b style="color:#f5b81c">legendär</b>. Je länger du dabei bist, desto höher die <b>Stufe</b> – und desto stärker die Teile.</li>
         <li>🦾 Bessere Teile legt dein Held automatisch an – sie machen dich stärker.</li>
         <li>💪 Training steigert Kraft, Ausdauer und Geist – das macht dich stärker.</li>
         <li>👹 Jede Woche taucht ein <b>Ausreden-Monster</b> auf – wer es erledigt, bekommt epische Beute.</li>
