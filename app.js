@@ -339,13 +339,8 @@ const syncHandlers = {
   connection(ok) { connected = ok; renderSyncDot(); },
   meta(m) {
     if (!m) {
-      // ein Mitspieler hat das Spiel gelöscht → auf diesem Gerät auch aufräumen
-      if (!gameDeleted) {
-        gameDeleted = true;
-        try { localStorage.removeItem(GAME_KEY); localStorage.removeItem(KEY); } catch (e) { /* ignorieren */ }
-        alert('🗑️ Dieses Spiel wurde von einem Mitspieler gelöscht.');
-        location.reload();
-      }
+      // Spiel ist online weg → NICHT sofort wegwerfen: dieses Handy hat noch eine Kopie und kann es wiederherstellen
+      if (!gameDeleted) { gameDeleted = true; setTimeout(offerRestore, 300); }
       return;
     }
     Object.assign(state, normalizeMeta({ season: m.season, hall: m.hall, pact: m.pact, stake: m.stake, resetId: m.resetId }));
@@ -493,9 +488,35 @@ async function shareInvite() {
   try { if (navigator.share) { await navigator.share({ title: 'Hantelhelden', text: 'Hilf mir, den inneren Schweinehund zu jagen! 🐷💪', url }); return; } } catch (e) { /* abgebrochen */ }
   try { await navigator.clipboard.writeText(url); toast('🔗 Link kopiert'); } catch (e) { prompt('Diesen Link schicken:', url); }
 }
-// Spiel endgültig löschen: entfernt alle Daten aus der Online-Datenbank
+// Online gelöschtes Spiel aus der Kopie auf diesem Handy zurückholen
+async function offerRestore() {
+  const known = PIDS.filter(id => state.players[id] && (state.players[id].updatedAt || id === game.me));
+  const names = known.map(id => state.players[id].name).join(', ');
+  if (confirm(`⚠️ Dieses Spiel wurde online gelöscht.\n\nAuf diesem Handy ist noch eine Kopie gespeichert (Helden: ${names}).\n\nJetzt für alle wiederherstellen?`)) {
+    try {
+      const now = await window.MB_SYNC.getGame(game.id);
+      if (!now || !now.meta) await window.MB_SYNC.createGame(game.id, clean({ season: state.season, hall: state.hall, pact: state.pact, stake: state.stake, resetId: state.resetId }));
+      for (const id of known) {
+        if (id !== game.me && now && now.players && now.players[id]) continue; // schon von jemand anderem zurückgeholt
+        if (id === game.me) state.players[id].updatedAt = Date.now();
+        window.MB_SYNC.setPlayer(game.id, id, clean(state.players[id]));
+      }
+      gameDeleted = false;
+      try { localStorage.setItem(KEY, JSON.stringify(state)); } catch (e) { /* ignorieren */ }
+      alert('✅ Spiel wiederhergestellt! Der Einladungslink funktioniert wieder.');
+      location.reload();
+    } catch (e) { gameDeleted = false; toast('Wiederherstellen fehlgeschlagen – bitte App neu öffnen'); }
+    return;
+  }
+  if (confirm('Nicht wiederherstellen. Soll das Spiel dann auch auf diesem Handy gelöscht werden?\n\n(„Abbrechen“ = Kopie behalten, beim nächsten Öffnen wird wieder gefragt.)')) {
+    try { localStorage.removeItem(GAME_KEY); localStorage.removeItem(KEY); } catch (e) { /* ignorieren */ }
+    location.reload();
+  }
+}
+// Spiel endgültig löschen: entfernt alle Daten aus der Online-Datenbank (nur wer das Spiel angelegt hat)
 async function deleteGame() {
   if (!online() || !window.MB_SYNC) { toast('Keine Verbindung – bitte mit Internet versuchen'); return; }
+  if (game.me !== 'a') { toast('Nur wer das Spiel angelegt hat, kann es löschen'); return; }
   if (!confirm('Spiel für ALLE endgültig löschen? Alle Helden, Beute und der Verlauf werden aus der Online-Datenbank entfernt. Das lässt sich nicht rückgängig machen.')) return;
   const v = prompt('Zur Sicherheit bitte LÖSCHEN eintippen:', '');
   if (!v || v.trim().toUpperCase() !== 'LÖSCHEN') { toast('Nicht gelöscht'); return; }
@@ -1638,7 +1659,7 @@ function viewProfil() {
         <div class="row"><span>🔗 Einladungslink</span><button class="btn small" data-act="share">Teilen</button></div>
         <div class="row"><span>📱 Dieses Gerät abmelden</span><button class="btn small" data-act="leave">Abmelden</button></div>
         <div class="row"><span>♻️ Meine Daten zurücksetzen</span><button class="btn small" data-act="resetmine">Zurücksetzen</button></div>
-        <div class="row"><span>🗑️ Spiel für alle löschen</span><button class="btn small danger" data-act="deletegame">Löschen</button></div>`
+        ${game.me === 'a' ? '<div class="row"><span>🗑️ Spiel für alle löschen <small>(nur Spiel-Ersteller)</small></span><button class="btn small danger" data-act="deletegame">Löschen</button></div>' : ''}`
       : '<div class="row"><span>📴 Nur auf diesem Gerät</span><button class="btn small" data-act="leave">Online spielen</button></div>'}
       <div class="row"><span>🏰 Altes Dorf-Spiel</span><a class="btn small" href="dorf/">Archiv</a></div>
     </div>
