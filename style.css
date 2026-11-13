@@ -643,3 +643,7 @@ b.who-link { text-decoration: underline dotted; text-underline-offset: 3px; }
 .task .hpbar i { background: var(--good); }
 .together { margin: 6px 0 0 16px; border: 1px dashed var(--line); background: var(--surface); border-radius: 999px; padding: 4px 11px; font-size: 13px; font-weight: 700; }
 .together.on { border-style: solid; border-color: var(--good); color: var(--good); }
+/* Team-Reiter */
+.cheer-row { background: var(--surface); border: 1px solid var(--line); border-radius: var(--radius); padding: 12px 14px; margin-top: 14px; }
+.task { margin-top: 0; }
+.list .row small { margin-left: auto; }

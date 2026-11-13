@@ -1173,7 +1173,7 @@ function feedItems() {
     const pid = idOf(q);
     for (const e of q.log) if (e.kind === 'train' && e.day >= from) items.push({ q, pid, e, key: pid + ':' + e.t });
   }
-  return items.sort((x, y) => y.e.t - x.e.t).slice(0, 6);
+  return items.sort((x, y) => y.e.t - x.e.t).slice(0, 5);
 }
 function reactionsOf(key) {
   const out = [];
@@ -1656,12 +1656,19 @@ function viewJagd() {
     </section>
 
     ${p.cheer ? `<section class="banner cheer">📣 <b>${esc(p.cheer.from)} feuert dich an!</b> Dein nächstes Training macht +25 % Schaden.</section>` : ''}
-    ${goalCard(p, res)}
+    ${goalCard(p, res)}`;
+}
 
-    <div class="today">
-      <span>Woche: ${team().map(x => `<b class="who-link" data-act="stats" data-arg="${idOf(x)}">${x === p ? 'Du' : esc(x.name)} ${goalTotal(x) ? `${goalDone(x)}/${goalTotal(x)}${goalReached(x) ? ' ✓' : ''}` : '–'}</b>`).join(' · ')}</span>
-    </div>
+// Team: alles Gemeinsame an einem Ort
+function viewTeam() {
+  const p = me(), tt = teamTask();
+  return `
     ${teamTaskCard()}
+    <h2>Diese Woche</h2>
+    <div class="card list">${team().map(x => { const id = idOf(x), aw = awayNow(x);
+      return `<div class="row who-link" data-act="stats" data-arg="${id}"><span class="cal-legend"><span><i style="background:${PCOLOR[id]}"></i>${x === p ? 'Du' : esc(x.name)}</span></span>
+        <small>${aw ? AWAY[aw.why].icon + ' ' + AWAY[aw.why].name : resting(x) ? '💤 ruht' : ''}</small>
+        <b>${goalTotal(x) ? `🎯 ${goalDone(x)}/${goalTotal(x)}${goalReached(x) ? ' ✓' : ''}` : '–'}</b></div>`; }).join('')}</div>
     ${cheerRow(p)}
     ${feedCard()}`;
 }
@@ -2272,7 +2279,7 @@ function viewMehr() {
     return `<section class="fold ${open ? 'open' : ''}"><button class="fold-head" data-act="fold" data-arg="${key}"><h2>${m[1]}</h2><span class="chev">${open ? '▴' : '▾'}</span></button>${open ? `<div class="fold-body">${m[2]}</div>` : ''}</section>`;
   }).join('');
 }
-const VIEWS = { jagd: viewJagd, kalender: () => calendarCard(), held: viewHeld, sparring: viewSparring, mehr: viewMehr };
+const VIEWS = { jagd: viewJagd, team: viewTeam, kalender: () => calendarCard(), held: viewHeld, sparring: viewSparring, mehr: viewMehr };
 
 function render() {
   const setup = !game || joinId || setupStep;
