@@ -32,12 +32,12 @@ const COURSES = [
   { id: 'ruecken', name: 'Rücken', icon: '🦴' }, { id: 'spinning', name: 'Spinning', icon: '🚲' },
   { id: 'sonstiges', name: 'Sonstiges', icon: '✨' },
 ];
-// Gesund gelebt: je +5 % Schaden auf die Trainings des Tages
+// früheres „Gesund gelebt“ – nur noch, damit alte Einträge im Verlauf lesbar bleiben
 const HEALTH = [
   { id: 'schlaf', name: 'Gut geschlafen', icon: '😴' },
+  { id: 'essen',  name: 'Gesund gegessen', icon: '🥗' },
   { id: 'wasser', name: 'Genug getrunken', icon: '💧' },
 ];
-const HEALTH_BONUS = 0.05;
 
 // Schaden
 const PR_MULT = 2.5;          // Neuer Rekord (Gewicht erhöht) = Volltreffer, 1× am Tag
@@ -503,7 +503,6 @@ const hasTalent = (p, stat, at) => p.stats[stat] >= at;
 // ein Eintrag kann mehrere Einheiten enthalten (z. B. 2× Kraft + 1× Ausdauer)
 const partsOf = e => e.parts ? asList(e.parts) : [{ id: e.id, n: 1, min: e.min || 10 }];
 function minutesToday(p, id) { return sum(p.log.filter(e => e.kind === 'train' && e.day === todayStr()).flatMap(partsOf).filter(x => !id || x.id === id).map(x => x.min)); }
-function healthToday(p) { return p.log.filter(e => e.kind === 'health' && e.day === todayStr() && HEALTH.some(h => h.id === e.id)).map(e => e.id); }
 function prToday(p) { return p.log.some(e => e.kind === 'train' && e.pr && e.day === todayStr()); }
 
 // Combo: Trainingstage in den letzten 7 Tagen (Ruhetage sind erlaubt und brechen nichts)
@@ -692,7 +691,6 @@ function damageOf(p, a, { pr = false, timing = 1, crit = false, min = a.step, of
   if (p.cheer) add('Angefeuert', CHEER_MULT);
   const best = Math.max(0, ...othersOf(p).map(seasonDamage));
   if (best > 500 && seasonDamage(p) < 0.6 * best) add('Comeback', COMEBACK_MULT);
-  add('Gesund gelebt', 1 + HEALTH_BONUS * healthToday(p).length);
   const done = minutesToday(p) + offset;
   let fall = 0;
   for (let m = 0; m < min; m += 5) fall += falloffAt(done + m);
@@ -796,15 +794,6 @@ function doTrain(pend, timing, grade) {
   const badges = earnedBadges(L);
   if (badges.length > before.badges) toast(`${badges[badges.length - 1].icon} Abzeichen: ${badges[badges.length - 1].name}!`, true);
   for (const t of TALENTS) if (p.stats[t.stat] >= t.at && before.stats[t.stat] < t.at) toast(`${t.icon} Talent freigeschaltet: ${t.name}!`, true);
-  render();
-}
-
-function health(id) {
-  const p = me();
-  if (healthToday(p).includes(id)) return;
-  p.log.unshift({ t: Date.now(), day: todayStr(), kind: 'health', id });
-  save();
-  toast(`${byId(HEALTH, id).icon} +5 % Schaden auf deine Trainings heute`);
   render();
 }
 
@@ -1024,7 +1013,7 @@ function sendDuel() {
 }
 
 const actions = {
-  train: startTrain, strike: () => strike(false), skip: () => strike(true), health, cheer, equip, scrap, undo, rename, reset,
+  train: startTrain, strike: () => strike(false), skip: () => strike(true), cheer, equip, scrap, undo, rename, reset,
   newSeason, pact: setPact, stake: setStake,
   pickstake: s => { if (s === 'eigen') { const v = prompt('Euer Einsatz (z. B. 🍕 Pizza):', ''); if (!v || !v.trim()) return; setupStake = v.trim().slice(0, 60); } else setupStake = s; render(); },
   pr: () => { prOn = !prOn; render(); },
@@ -1237,11 +1226,7 @@ function viewJagd() {
     <div class="today">
       <span>Woche: ${team().map(x => `<b class="who-link" data-act="stats" data-arg="${idOf(x)}">${x === p ? 'Du' : esc(x.name)} ${goalTotal(x) ? `${goalDone(x)}/${goalTotal(x)}${goalReached(x) ? ' ✓' : ''}` : '–'}</b>`).join(' · ')}</span>
       <button class="btn small" data-act="cheer" ${p.cheerSent === todayStr() || !others.length ? 'disabled' : ''}>${p.cheerSent === todayStr() ? '📣 angefeuert ✓' : '📣 anfeuern'}</button>
-    </div>
-
-    <h2>Gesund gelebt <small>je +5 % Schaden heute</small></h2>
-    <div class="health">${HEALTH.map(h => { const done = healthToday(p).includes(h.id);
-      return `<button class="chip-btn ${done ? 'done' : ''}" data-act="health" data-arg="${h.id}" ${done ? 'disabled' : ''}>${h.icon} ${h.name}${done ? ' ✓' : ''}</button>`; }).join('')}</div>`;
+    </div>`;
 }
 
 // Wochenziel-Karte: Kästchen pro Training, Antippen trägt ein
@@ -1561,7 +1546,7 @@ function viewProfil() {
       const what = c ? `${c.icon} Kurs: ${c.name}` : e.parts ? partsOf(e).map(x => `${actOf(x.id).icon} ${x.n}× ${actOf(x.id).name}`).join(' · ') : `${actOf(e.id).icon} ${actOf(e.id).name}`;
       return `${what}${e.min ? ` · ${e.min} Min.` : ''} <span class="muted">−${num(e.dmg)}${e.pr ? ' 🏆' : ''}${e.crit ? ' 🎯' : ''}</span>`;
     }
-    const h = byId(HEALTH, e.id);
+    const h = byId(HEALTH, e.id) || { icon: '✓', name: 'Eintrag' };
     return `${h.icon} ${h.name}`;
   };
   return `
@@ -1663,7 +1648,7 @@ const INTRO = [
         <li><b>Zuschlagen:</b> Ein Balken pendelt – triff die Mitte für bis zu +30 % Schaden. Oder ohne Minispiel eintragen.</li>
         <li>Der Schweinehund steckt ein, seine Lebensleiste sinkt.</li>
       </ol>
-      <p class="hint">Mehr Schaden gibt es für: 🏆 neuen Rekord (Gewicht gesteigert, 1× am Tag), 🔥 regelmäßiges Training (Combo), 😴 gut geschlafen & 💧 genug getrunken, 📣 Anfeuern vom Partner.</p>` },
+      <p class="hint">Mehr Schaden gibt es für: 🏆 neuen Rekord (Gewicht gesteigert, 1× am Tag), 🔥 regelmäßiges Training (Combo), 📣 Anfeuern vom Partner.</p>` },
   { pic: () => '<div class="intro-icon">🎁</div>', title: 'Beute & dein Held',
     body: `<ul class="intro-list">
         <li>🔐 Nach jedem Training öffnet sich dein <b>Spind</b> mit zufälliger Ausrüstung – von gewöhnlich bis <b style="color:#f5b81c">legendär</b>.</li>
