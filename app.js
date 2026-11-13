@@ -195,7 +195,7 @@ function setGoal(p, draft) {
 function freshState() {
   return {
     v: 1, current: 'a', players: Object.fromEntries(PIDS.map(id => [id, newHero(defaultName(id))])),
-    season: { no: 1, chapter: 1, start: todayStr(), end: addMonth(todayStr()), result: null }, hall: [], pact: '', resetId: rid(),
+    season: { no: 1, chapter: 1, start: todayStr(), end: monthEnd(todayStr()), result: null }, hall: [], pact: '', resetId: rid(),
   };
 }
 
@@ -248,7 +248,8 @@ let menu = {};            // im Menü gewählte Einheiten, z. B. { kraft: 2, pul
 let goalOpen = false, goalDraft = {};
 let bossFold = true;      // Einsatz & Regeln auf der Jagd-Seite eingeklappt
 const openFolds = new Set(['f2']); // aufgeklappte Abschnitte unter „Mehr“
-let goalFold = true;      // Wochenziel-Karte eingeklappt
+let goalFold = true;
+let calFold = false;      // Kalender aufgeklappt      // Wochenziel-Karte eingeklappt
 let statsOf = null;       // Statistik-Fenster für diesen Spieler (id)
 const me = () => state.players[state.current];
 
@@ -581,7 +582,14 @@ function comboMult(p, extraToday = false) {
 /* ---------- Saison & Schweinehund ---------- */
 
 const chapterF = () => CHAPTER_GROWTH ** (state.season.chapter - 1);
-const seasonEnd = () => state.season.end || addDays(state.season.start, SEASON_DAYS);
+// Jagd läuft bis Monatsende (end = erster Tag danach). Alte Jagd ohne Ende: bis 30.11.2026
+const seasonEnd = () => state.season.end || '2026-12-01';
+// erster Tag des nächsten Monats; bleiben weniger als 10 Tage, läuft die Jagd bis Ende des Folgemonats
+function monthEnd(day) {
+  const d = new Date(day + 'T12:00'); d.setDate(1); d.setMonth(d.getMonth() + 1);
+  const end = todayStr(d);
+  return daysBetween(day, end) < 10 ? monthEnd(end) : end;
+}
 const seasonLenF = () => daysBetween(state.season.start, seasonEnd()) / BOSS_DAYS;
 // gleicher Tag im nächsten Monat (31.1. → 28./29.2.)
 function addMonth(day) {
@@ -940,7 +948,7 @@ function newSeason() {
     mvp: [...team()].sort((x, y) => seasonDamage(y) - seasonDamage(x))[0].name });
   const carry = {};
   for (const [id, p] of Object.entries(state.players)) carry[id] = p.dmg[todayStr()] || 0;
-  state.season = { no: state.season.no + 1, chapter: r.won ? ch + 1 : ch, start: todayStr(), end: addMonth(todayStr()), result: null, carry };
+  state.season = { no: state.season.no + 1, chapter: r.won ? ch + 1 : ch, start: todayStr(), end: monthEnd(todayStr()), result: null, carry };
   state.pact = '';
   metaSet({ hall: state.hall, season: state.season, pact: '' });
   save();
@@ -1106,6 +1114,8 @@ const actions = {
   goalcancel: () => { goalOpen = false; render(); },
   goalsave: () => { const p = me(); const msg = setGoal(p, goalDraft); goalOpen = false; save(); toast(msg, true); render(); },
   goalfold: () => { goalFold = !goalFold; render(); },
+  calfold: () => { calFold = !calFold; render(); },
+  calday: d => toast(calDayText(d), true),
   bossfold: () => { bossFold = !bossFold; render(); },
   fold: k => { openFolds.has(k) ? openFolds.delete(k) : openFolds.add(k); render(); },
   sparwith: id => { sparTarget = id; render(); },
@@ -1298,7 +1308,40 @@ function viewJagd() {
     <div class="today">
       <span>Woche: ${team().map(x => `<b class="who-link" data-act="stats" data-arg="${idOf(x)}">${x === p ? 'Du' : esc(x.name)} ${goalTotal(x) ? `${goalDone(x)}/${goalTotal(x)}${goalReached(x) ? ' ✓' : ''}` : '–'}</b>`).join(' · ')}</span>
       <button class="btn small" data-act="cheer" ${p.cheerSent === todayStr() || !others.length ? 'disabled' : ''}>${p.cheerSent === todayStr() ? '📣 angefeuert ✓' : '📣 anfeuern'}</button>
-    </div>`;
+    </div>
+    ${calendarCard()}`;
+}
+
+/* ---------- Kalender: wer hat wann trainiert ---------- */
+const PCOLOR = { a: '#2f6fed', b: '#8e6bd8', c: '#0fa3a3', d: '#e0559b' };
+const fmtDay = d => new Date(d + 'T12:00').toLocaleDateString('de-DE', { day: 'numeric', month: 'numeric' });
+const trainedOn = (p, d) => p.log.some(e => e.kind === 'train' && e.day === d) || (p.dmg[d] || 0) > 0;
+function calDayText(d) {
+  const wd = new Date(d + 'T12:00').toLocaleDateString('de-DE', { weekday: 'short', day: 'numeric', month: 'numeric' });
+  return wd + ': ' + team().map(p => {
+    const icons = p.log.filter(e => e.kind === 'train' && e.day === d).flatMap(partsOf).map(x => actOf(x.id).icon);
+    return `${p.name} ${icons.length ? [...new Set(icons)].join('') : (trainedOn(p, d) ? '✓' : '–')}`;
+  }).join(' · ');
+}
+function calendarCard() {
+  const start = state.season.start, end = seasonEnd(), last = addDays(end, -1), today = todayStr();
+  const ps = team().map(p => [idOf(p), p]);
+  const days = [];
+  for (let d = weekKey(new Date(start + 'T12:00')); d < end || new Date(d + 'T12:00').getDay() !== 1; d = addDays(d, 1)) days.push(d);
+  const head = `<button class="goal-top goal-toggle" data-act="calfold"><b>📅 Kalender · ${fmtDay(start)}–${fmtDay(last)}</b><span class="chev">${calFold ? '▾' : '▴'}</span></button>`;
+  if (calFold) return `<section class="card cal">${head}</section>`;
+  return `<section class="card cal">${head}
+    <div class="cal-legend">${ps.map(([id, p]) => `<span><i style="background:${PCOLOR[id]}"></i>${esc(p.name)}</span>`).join('')}</div>
+    <div class="cal-grid">${['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].map(w => `<b>${w}</b>`).join('')}
+      ${days.map(d => {
+        const out = d < start || d >= end;
+        if (out) return '<span class="cal-day out"></span>';
+        const dots = ps.filter(([, p]) => trainedOn(p, d)).map(([id]) => `<i style="background:${PCOLOR[id]}"></i>`).join('');
+        return `<button class="cal-day ${d === today ? 'today' : ''} ${d > today ? 'future' : ''} ${d === last ? 'goal' : ''}" ${d <= today ? `data-act="calday" data-arg="${d}"` : ''}>
+          <small>${Number(d.slice(8))}</small><span class="dots">${d === last && !dots ? '🏁' : dots}</span></button>`;
+      }).join('')}</div>
+    <small class="hint">Ein Punkt = an dem Tag trainiert. Tag antippen zeigt, wer was gemacht hat. 🏁 = letzter Tag der Jagd.</small>
+  </section>`;
 }
 
 // Wochenziel-Karte: Kästchen pro Training, Antippen trägt ein
