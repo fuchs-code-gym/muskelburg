@@ -2284,7 +2284,8 @@ const INTRO = [
         <li><b>Zuschlagen:</b> Ein Balken pendelt – triff die Mitte für bis zu +30 % Schaden. Oder ohne Minispiel eintragen.</li>
         <li>Der Schweinehund steckt ein, seine Lebensleiste sinkt.</li>
       </ol>
-      <p class="hint">Mehr Schaden gibt es für: 🏆 neuen Rekord (Gewicht gesteigert, 1× am Tag), 🔥 regelmäßiges Training (Combo), 🥗 gesund gelebt (Schlaf, Essen, Trinken), 📣 Anfeuern vom Partner.</p>` },
+      <p class="hint">Mehr Schaden gibt es für: 🏆 neuen Rekord (Gewicht gesteigert, 1× am Tag), 🔥 regelmäßiges Training (Combo), 🥗 gesund gelebt (Schlaf, Essen, Trinken), 📣 Anfeuern vom Partner.</p>
+      <p class="hint">😮‍💨 <b>Erholung:</b> Pro Tag zählen die ersten 120 Minuten Training voll (alle Arten zusammen). Danach braucht der Körper Pause: bis 150 Min. zählt der Schaden zu 60 %, darüber zu 30 %. Verteilen lohnt sich also mehr als ein Mammut-Tag.</p>` },
   { pic: () => '<div class="intro-icon">🎁</div>', title: 'Beute & dein Held',
     body: `<ul class="intro-list">
         <li>🔐 Beim ersten Training des Tages öffnet sich dein <b>Spind</b> mit zufälliger Ausrüstung – von gewöhnlich bis <b style="color:#f5b81c">legendär</b>. Je länger du dabei bist, desto höher die <b>Stufe</b> – und desto stärker die Teile.</li>
