@@ -22,8 +22,8 @@ const ACTIVITIES = [
   { id: 'kraft', name: 'Kraft', unit: '5 Min. am Limit · Geräte, Hanteln, Milon', icon: '💪', type: 'str', step: 5, maxMin: 60, base: 45, gives: { str: 2 }, pr: true },
   { id: 'puls', name: 'Ausdauer', unit: '10 Min. · Rad, Crosstrainer, Rudern', icon: '🫀', type: 'end', step: 10, maxMin: 90, base: 50, gives: { end: 2 } },
   { id: 'ausgleich', name: 'Ausgleich', unit: '10 Min. · Yoga, Pilates, Dehnen, Mobility', icon: '🧘', type: 'mind', step: 10, maxMin: 90, base: 45, gives: { mind: 2 } },
-  // Kurs/Sport am Stück: 60 Min. ≈ 60 Min. Ausdauer ≈ 30 Min. Kraft ≈ 60 Min. Yoga
-  { id: 'sport', name: 'Kurs & Sport', unit: '60 Min. · Badminton, Bouldern, Spinning, Kurs', icon: '🏸', type: 'end', step: 60, maxMin: 120, base: 300, gives: { str: 4, end: 6, mind: 2 } },
+  // Kurs/Sport in 10-Min.-Schritten: wie Ausdauer (60 Min. = 300 Grundschaden), steigert Kraft und Ausdauer
+  { id: 'sport', name: 'Kurs & Sport', unit: '10 Min. · Badminton, Bouldern, Spinning, Kurs', icon: '🏸', type: 'end', step: 10, maxMin: 120, base: 50, gives: { str: 1, end: 1 } },
 ];
 // alte Einträge im Verlauf weiter anzeigen können
 const OLD_ACTIVITIES = [
