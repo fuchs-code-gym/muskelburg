@@ -2,14 +2,15 @@
   "name": "Hantelhelden",
   "short_name": "Hantelhelden",
   "description": "Gym-Training macht deinen Helden stark",
+  "id": "./",
   "start_url": "./",
   "scope": "./",
   "display": "standalone",
   "background_color": "#14161b",
   "theme_color": "#14161b",
   "icons": [
-    { "src": "icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
-    { "src": "icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" },
-    { "src": "icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
+    { "src": "hh-icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any maskable" },
+    { "src": "hh-icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" },
+    { "src": "hh-icon.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" }
   ]
 }

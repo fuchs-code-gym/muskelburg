@@ -1,6 +1,6 @@
 // Offline-Unterstützung: immer erst frisch aus dem Netz, bei Funkloch aus dem Cache
-const CACHE = 'hantelhelden-49';
-const FILES = ['./', './index.html', './style.css', './app.js', './sync.js', './manifest.webmanifest', './icon.svg', './icon-192.png', './icon-512.png'];
+const CACHE = 'hantelhelden-50';
+const FILES = ['./', './index.html', './style.css', './app.js', './sync.js', './manifest.webmanifest', './hh-icon.svg', './hh-icon-192.png', './hh-icon-512.png'];
 
 self.addEventListener('install', e => {
   e.waitUntil(caches.open(CACHE).then(c => c.addAll(FILES.map(f => new Request(f, { cache: 'reload' })))));
