@@ -146,8 +146,8 @@ const BADGES = [
 
 const DEVICE = new URLSearchParams(location.search).get('geraet') || '';
 const KEY = 'hantelhelden-v1' + DEVICE;
-// bis zu vier Helden pro Spiel
-const PIDS = ['a', 'b', 'c', 'd'];
+// bis zu acht Helden pro Spiel
+const PIDS = ['a', 'b', 'c', 'd', 'e', 'f', 'g', 'h'];
 const defaultName = id => 'Spieler ' + (PIDS.indexOf(id) + 1);
 const GAME_KEY = 'hantelhelden-game-v1' + DEVICE;
 const DAY_MS = 86400000, H_MS = 3600e3;
@@ -1110,16 +1110,19 @@ const TEAM_TASKS = [
   { icon: '⏱️', text: n => `Zusammen ${75 * n} Minuten trainieren`, total: (qs, wk) => [sum(qs.map(q => weekMinutesAll(q, wk))), 75 * qs.length] },
   { icon: '📅', text: 'Jeder trainiert an mindestens 2 Tagen', each: (q, wk) => weekDays(q, wk) >= 2 },
   { icon: '🧘', text: n => `Zusammen ${n}× Ausgleich (Yoga, Dehnen …)`, total: (qs, wk) => [sum(qs.map(q => weekSessions(q, 'ausgleich', wk))), qs.length] },
-  { icon: '🔥', text: 'An 5 verschiedenen Tagen trainiert jemand', total: (qs, wk) => { const ds = new Set(); for (const q of qs) for (let k = 0; k < 7; k++) if (trainedDay(q, addDays(wk, k))) ds.add(k); return [ds.size, 5]; } },
+  { icon: '🔥', text: n => `An ${spreadDays(n)} verschiedenen Tagen trainiert jemand`, total: (qs, wk) => { const ds = new Set(); for (const q of qs) for (let k = 0; k < 7; k++) if (trainedDay(q, addDays(wk, k))) ds.add(k); return [ds.size, spreadDays(qs.length)]; } },
   { icon: '💪', text: 'Jeder macht mindestens 1× Kraft', each: (q, wk) => weekSessions(q, 'kraft', wk) >= 1 },
 ];
+// bis 3 Leute: 5 Tage, 4–5 Leute: 6 Tage, ab 6 Leuten: jeden Tag
+const spreadDays = n => n <= 3 ? 5 : n <= 5 ? 6 : 7;
 function weekMinutesAll(q, wk) { return sum(q.log.filter(e => e.kind === 'train' && e.day >= wk && e.day < addDays(wk, 7)).flatMap(partsOf).map(x => x.min || 0)); }
 function weekDays(q, wk) { let n = 0; for (let k = 0; k < 7; k++) if (trainedDay(q, addDays(wk, k))) n++; return n; }
 function teamTask(wk = weekKey()) {
   const i = Math.abs(Math.round(new Date(wk + 'T12:00') / (7 * DAY_MS))) % TEAM_TASKS.length;
   const t = TEAM_TASKS[i];
   // wer die ganze Woche krank/im Urlaub ist oder ruht, muss nicht mitmachen
-  const qs = team().filter(q => !awayNow(q) && activeOn(q, wk < todayStr() ? wk : todayStr()));
+  const ref = addDays(wk, 6) < todayStr() ? addDays(wk, 6) : todayStr(); // Stand am Wochenende bzw. heute
+  const qs = team().filter(q => !awayNow(q) && activeOn(q, ref));
   const n = Math.max(1, qs.length);
   let have, need, who = [];
   if (t.each) { who = qs.map(q => ({ q, ok: t.each(q, wk) })); have = who.filter(x => x.ok).length; need = qs.length; }
@@ -1546,6 +1549,11 @@ function renderHeader() {
       <b>${lead > 0 && weekDamage(p, wk) === lead ? '👑 ' : ''}${awayNow(p) ? AWAY[awayNow(p).why].icon + ' ' : resting(p) ? '💤 ' : ''}${esc(p.name)}</b><small>${num(weekDamage(p, wk))} ⚡</small>
     </button>`).join('');
   renderSyncDot();
+  const row = document.getElementById('players'), on = row.querySelector('.pchip.on');
+  if (on && row.scrollWidth > row.clientWidth) {
+    const l = on.offsetLeft - row.offsetLeft, r = l + on.offsetWidth;
+    if (l < row.scrollLeft || r > row.scrollLeft + row.clientWidth) row.scrollLeft = l - 16;
+  }
   const p = me();
   const shown = tab === 'sparring' || tab === 'held' ? 'team' : tab;
   for (const btn of document.querySelectorAll('#tabs button')) btn.classList.toggle('on', btn.dataset.arg === shown);
@@ -1747,13 +1755,15 @@ async function shareRecap() {
   g.fillStyle = '#9aa1ab'; g.font = `500 38px ${F}`;
   g.fillText(`Jagd ${r.no} · ${fmt(r.start)} – ${fmt(r.end)}`, 80, 320);
   let y = 440;
+  const rowH = Math.min(150, Math.floor((H - 560) / Math.max(1, r.stats.length)));
   r.stats.forEach((x, i) => {
-    g.fillStyle = i === 0 ? '#f2b233' : '#f4f5f7'; g.font = `800 48px ${F}`;
+    const big = rowH >= 130;
+    g.fillStyle = i === 0 ? '#f2b233' : '#f4f5f7'; g.font = `800 ${big ? 48 : 40}px ${F}`;
     g.fillText(`${['🥇', '🥈', '🥉'][i] || '  '} ${x.name}`, 80, y);
     g.textAlign = 'right'; g.fillText(num(x.dmg), W - 80, y); g.textAlign = 'left';
-    g.fillStyle = '#9aa1ab'; g.font = `500 34px ${F}`;
-    g.fillText(`${x.days} Trainingstage · ${x.min} Minuten${x.rate !== null ? ` · Ziel ${x.rate} %` : ''}`, 140, y + 50);
-    y += 150;
+    g.fillStyle = '#9aa1ab'; g.font = `500 ${big ? 34 : 28}px ${F}`;
+    g.fillText(`${x.days} Trainingstage · ${x.min} Minuten${x.rate !== null ? ` · Ziel ${x.rate} %` : ''}`, 140, y + (big ? 50 : 40));
+    y += rowH;
   });
   g.fillStyle = '#f4f5f7'; g.font = `700 40px ${F}`;
   if (r.won && r.pact) g.fillText(`🎉 Jetzt fällig: ${r.pact}`, 80, H - 160);
@@ -1766,7 +1776,7 @@ async function shareRecap() {
 }
 
 /* ---------- Kalender: wer hat wann trainiert ---------- */
-const PCOLOR = { a: '#2f6fed', b: '#8e6bd8', c: '#0fa3a3', d: '#e0559b' };
+const PCOLOR = { a: '#2f6fed', b: '#8e6bd8', c: '#0fa3a3', d: '#e0559b', e: '#c9a227', f: '#6f9a1f', g: '#9a6b3f', h: '#5b6b8f' };
 const fmtDay = d => new Date(d + 'T12:00').toLocaleDateString('de-DE', { day: 'numeric', month: 'numeric' });
 const trainedOn = (p, d) => p.log.some(e => e.kind === 'train' && e.day === d) || (p.dmg[d] || 0) > 0;
 const isHealDay = d => d >= state.season.start && d < todayStr() && d < seasonEnd() && !Object.values(state.players).some(p => dayDmg(p, d) > 0);
@@ -1829,7 +1839,7 @@ function calendarCard() {
   const passed = Math.max(1, Math.min(daysBetween(start, today) + 1, daysBetween(start, end)));
   return `<h2>Kalender</h2><section class="card cal">${head}
     <div class="cal-legend">${ps.map(([id, p]) => `<span><i style="background:${PCOLOR[id]}"></i>${esc(p.name)}</span>`).join('')}</div>
-    <div class="cal-grid">${['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].map(w => `<b>${w}</b>`).join('')}
+    <div class="cal-grid ${ps.length > 4 ? 'many' : ''}">${['Mo', 'Di', 'Mi', 'Do', 'Fr', 'Sa', 'So'].map(w => `<b>${w}</b>`).join('')}
       ${days.map(d => {
         const out = d < start || d >= end;
         if (out) return '<span class="cal-day out"></span>';
@@ -2237,7 +2247,7 @@ function viewSetup() {
       <p>${taken.map(pid => esc(players[pid].name)).join(' und ')} ${taken.length > 1 ? 'jagen den inneren Schweinehund – und brauchen dich.' : 'jagt den inneren Schweinehund – und braucht dich.'}</p>
       ${joinInfo.meta.stake ? `<div class="stake">${esc(joinInfo.meta.stake)} <b>Einsatz:</b> Überlebt er, zahlt, wer sein Wochenziel am deutlichsten verfehlt.</div>` : ''}
       <div class="slots">${PIDS.map((pid, i) => `<span class="${taken.includes(pid) ? 'on' : ''}">Platz ${i + 1}: <b>${taken.includes(pid) ? esc(players[pid].name) : 'frei'}</b></span>`).join('')}</div>
-      ${free ? `${nameField}<button class="btn primary big" data-act="join" data-arg="${free}">Neu mitmachen</button>` : '<p class="hint">Das Team ist voll (3 Leute).</p>'}
+      ${free ? `${nameField}<button class="btn primary big" data-act="join" data-arg="${free}">Neu mitmachen</button>` : `<p class="hint">Das Team ist voll (${PIDS.length} Leute).</p>`}
       ${taken.length ? `<p class="hint">Du spielst schon mit und wechselst nur das Gerät?</p>
         ${taken.map(pid => `<button class="btn small ghost" data-act="join" data-arg="${pid}">Ich bin ${esc(players[pid].name)}</button>`).join('')}` : ''}</section>`;
   }
@@ -2269,7 +2279,7 @@ const INTRO = [
         <li>😬 Überlebt er, zahlt den <b>Einsatz</b>, wer sein eigenes Ziel am deutlichsten verfehlt hat.</li>
       </ul>` },
   { pic: () => bossSvg(1, 1), title: 'Euer Gegner: der innere Schweinehund',
-    body: `<p>Er liegt auf dem Sofa, futtert Chips und lacht euch aus. Ihr seid ein Team aus zwei bis vier Leuten – und ihr jagt ihn <b>gemeinsam</b>.</p>
+    body: `<p>Er liegt auf dem Sofa, futtert Chips und lacht euch aus. Ihr seid ein Team aus zwei bis acht Leuten – und ihr jagt ihn <b>gemeinsam</b>.</p>
       <ul class="intro-list">
         <li>🎯 <b>Ziel:</b> ${BOSS_HP.toLocaleString('de-DE')} Lebenspunkte zu zweit (je weitere Person +${(BOSS_HP / 2).toLocaleString('de-DE')}) in <b>einem Monat</b> runterprügeln. Das schafft, wer 3× pro Woche Kraft trainiert.</li>
         <li>💤 Wer ${REST_DAYS} Tage nicht trainiert, <b>ruht</b> und zählt nicht mehr – der Schweinehund schrumpft. Ein Training, und man ist wieder dabei.</li>

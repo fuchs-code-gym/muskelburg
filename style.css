@@ -662,3 +662,10 @@ b.who-link { text-decoration: underline dotted; text-underline-offset: 3px; }
 .my-entries summary { cursor: pointer; color: var(--muted); font-size: 13px; }
 .entry-row { display: flex; align-items: center; justify-content: space-between; gap: 8px; padding: 6px 0; border-bottom: 1px solid var(--line); }
 .entry-row small { color: var(--muted); margin-left: 4px; }
+
+/* v51: fünf bis acht Leute – Namensleiste wischbar, Kalender-Punkte kleiner */
+.players:has(.pchip:nth-child(5)) { overflow-x: auto; scrollbar-width: none; scroll-snap-type: x proximity; }
+.players:has(.pchip:nth-child(5))::-webkit-scrollbar { display: none; }
+.players:has(.pchip:nth-child(5)) .pchip { flex: 0 0 84px; scroll-snap-align: start; }
+.cal-grid.many .cal-day .dots { gap: 1px; }
+.cal-grid.many .cal-day .dots i { width: 6px; height: 6px; }
