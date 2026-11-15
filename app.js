@@ -446,7 +446,8 @@ let joinId = (location.hash.match(/jagd=([a-z0-9]+)/) || [])[1] || null;
 const INTRO_KEY = 'hantelhelden-intro-v1' + DEVICE;
 let introPage = null;
 try { if (!localStorage.getItem(INTRO_KEY)) introPage = 0; } catch (e) { introPage = 0; }
-if (joinId && game && game.id === joinId) { joinId = null; history.replaceState(null, '', location.pathname + location.search); }
+// Einladungslink auf einem Handy, das schon in diesem Spiel ist → Beitritts-Seite zeigt „Weiter als …“ oder „Neu mitmachen“
+const joinSame = () => !!(joinId && game && game.id === joinId);
 
 // Startcode: Nur wer ihn kennt, kann ein neues Spiel anlegen (Einladungslinks funktionieren ohne Code)
 const START_CODE_HASH = '19c1ed8cbe065bf3d09d5d278d0e83b8dbf53ec39bc3c45f1b27737fafc790ce';
@@ -527,11 +528,15 @@ async function createGame() {
   setupStep = 'invite';
   render();
 }
+function joinStay() { joinId = null; joinInfo = null; history.replaceState(null, '', location.pathname + location.search); render(); }
 async function joinGame(pid) {
+  if (joinSame() && pid === game.me) { joinStay(); return; }
   const snap = joinInfo;
   const existing = snap && snap.players && snap.players[pid] && snap.players[pid].updatedAt ? snap.players[pid] : null;
   const name = setupName();
   if (!name && !existing) { toast('Gib zuerst deinen Namen ein'); return; }
+  const was = joinSame() && state.players[game.me] ? state.players[game.me].name : '';
+  if (was && !existing && !confirm(`Dieses Handy war bisher ${was}. Jetzt als neue Person „${name}“ mitmachen?\n\nDer Held von ${was} bleibt online gespeichert – ${was} kommt mit dem Einladungslink auf dem eigenen Handy wieder rein.`)) return;
   if (existing && !confirm(`Bist du wirklich ${existing.name}? Dieses Gerät übernimmt dann den Helden von ${existing.name}.\n\nNeu dabei? Dann „Abbrechen“ und „Mitmachen“ wählen.`)) return;
   saveGame({ id: joinId, me: pid });
   joinId = null;
@@ -545,7 +550,7 @@ async function joinGame(pid) {
     if (o !== pid) state.players[o] = otherFromRemote(snap && snap.players && snap.players[o], defaultName(o));
   }
   reconcileOwn();
-  save();
+  save(); // speichert und schickt den Helden gleich online (auch wenn das Handy schon verbunden war)
   startSync();
   toast(`🐷 Willkommen bei der Jagd, ${me().name}!`, true);
   render();
@@ -1479,7 +1484,7 @@ const actions = {
   closeduel: () => { duelOpen = false; answering = null; duelPick = []; render(); },
   fight: sendDuel, seen: () => { freshReport = null; render(); },
   setdefault: arg => { const [i, t] = arg.split(':'); me().tactics[Number(i)] = t; save(); render(); },
-  create: createGame, deletegame: deleteGame, join: joinGame, local: playLocal, share: shareInvite, leave: leaveGame,
+  create: createGame, deletegame: deleteGame, join: joinGame, joinstay: joinStay, local: playLocal, share: shareInvite, leave: leaveGame,
   setupdone: () => { setupStep = null; render(); },
   intro: () => { introPage = 0; render(); window.scrollTo(0, 0); },
   intronext: () => { introPage = Math.min(INTRO.length - 1, introPage + 1); render(); window.scrollTo(0, 0); },
@@ -2243,13 +2248,14 @@ function viewSetup() {
     const players = joinInfo.players || {};
     const taken = PIDS.filter(pid => players[pid] && players[pid].updatedAt);
     const free = PIDS.find(pid => !taken.includes(pid));
-    return `<section class="card setup">${bossSvg(1, 1)}<h2>Hilf bei der Jagd!</h2>
+    const sameName = joinSame() && state.players[game.me] ? state.players[game.me].name : '';
+    return `<section class="card setup">${sameName ? `<div class="banner">📱 Dieses Handy ist schon als <b>${esc(sameName)}</b> dabei.<br><button class="btn small primary" data-act="joinstay">Weiter als ${esc(sameName)}</button><br><small>Oder eine neue Person macht auf diesem Handy mit: Namen eingeben und „Neu mitmachen“.</small></div>` : ''}${bossSvg(1, 1)}<h2>Hilf bei der Jagd!</h2>
       <p>${taken.map(pid => esc(players[pid].name)).join(' und ')} ${taken.length > 1 ? 'jagen den inneren Schweinehund – und brauchen dich.' : 'jagt den inneren Schweinehund – und braucht dich.'}</p>
       ${joinInfo.meta.stake ? `<div class="stake">${esc(joinInfo.meta.stake)} <b>Einsatz:</b> Überlebt er, zahlt, wer sein Wochenziel am deutlichsten verfehlt.</div>` : ''}
-      <div class="slots">${PIDS.map((pid, i) => `<span class="${taken.includes(pid) ? 'on' : ''}">Platz ${i + 1}: <b>${taken.includes(pid) ? esc(players[pid].name) : 'frei'}</b></span>`).join('')}</div>
+      <div class="slots">${taken.map((pid, i) => `<span class="on">Platz ${i + 1}: <b>${esc(players[pid].name)}</b></span>`).join('')}<span>${PIDS.length - taken.length ? `noch <b>${PIDS.length - taken.length}</b> Plätze frei` : 'kein Platz mehr frei'}</span></div>
       ${free ? `${nameField}<button class="btn primary big" data-act="join" data-arg="${free}">Neu mitmachen</button>` : `<p class="hint">Das Team ist voll (${PIDS.length} Leute).</p>`}
       ${taken.length ? `<p class="hint">Du spielst schon mit und wechselst nur das Gerät?</p>
-        ${taken.map(pid => `<button class="btn small ghost" data-act="join" data-arg="${pid}">Ich bin ${esc(players[pid].name)}</button>`).join('')}` : ''}</section>`;
+        ${taken.filter(pid => !(joinSame() && pid === game.me)).map(pid => `<button class="btn small ghost" data-act="join" data-arg="${pid}">Ich bin ${esc(players[pid].name)}</button>`).join('')}` : ''}</section>`;
   }
   return `<section class="card setup">
       ${bossSvg(1, 1)}
