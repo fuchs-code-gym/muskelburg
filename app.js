@@ -1556,7 +1556,8 @@ const fmtMult = f => '×' + String(Math.round(f * 100) / 100).replace('.', ',');
 function renderHeader() {
   const lead = Math.max(...team().map(monthDamage));
   const mon = ['Jan.', 'Feb.', 'März', 'Apr.', 'Mai', 'Juni', 'Juli', 'Aug.', 'Sept.', 'Okt.', 'Nov.', 'Dez.'][+todayStr().slice(5, 7) - 1];
-  document.getElementById('players').innerHTML = team().map(p => [idOf(p), p]).map(([id, p]) => `
+  // nach Monatsschaden sortiert (stabil: bei Gleichstand bleibt die Platz-Reihenfolge)
+  document.getElementById('players').innerHTML = team().map(p => [idOf(p), p]).sort((x, y) => monthDamage(y[1]) - monthDamage(x[1])).map(([id, p]) => `
     <button class="pchip ${id === state.current ? 'on' : ''} ${online() && id !== game.me ? 'other' : ''}" data-act="player" data-arg="${id}">
       <b>${lead > 0 && monthDamage(p) === lead ? '👑 ' : ''}${awayNow(p) ? AWAY[awayNow(p).why].icon + ' ' : resting(p) ? '💤 ' : ''}${esc(p.name)}</b><small>${num(monthDamage(p))} ⚡ · ${mon}</small>
     </button>`).join('');
