@@ -308,6 +308,7 @@ try { game = JSON.parse(localStorage.getItem(GAME_KEY)); } catch (e) { /* kein S
 let sync = null, connected = false;
 let gameDeleted = false; // Spiel wurde gelöscht → nichts mehr hochladen
 const online = () => !!(game && game.id);
+const isAdmin = () => !online() || game.me === 'a'; // nur wer das Spiel angelegt hat (Platz a) darf zurücksetzen
 const ownIds = () => online() ? [game.me] : Object.keys(state.players);
 const mine = () => ownIds().map(id => state.players[id]);
 // Wer spielt mit? Online zählen nur Plätze, die jemand übernommen hat
@@ -680,6 +681,10 @@ function dayDmg(p, d) {
 function seasonDamage(p) { return sum(Object.keys(p.dmg).filter(inSeason).map(d => dayDmg(p, d))); }
 function weekDamage(p, wk = weekKey()) {
   return sum(Object.keys(p.dmg).filter(d => d >= wk && d < addDays(wk, 7) && inSeason(d)).map(d => dayDmg(p, d)));
+}
+function monthDamage(p) {
+  const m = todayStr().slice(0, 7);
+  return sum(Object.keys(p.dmg).filter(d => d.slice(0, 7) === m).map(d => dayDmg(p, d)));
 }
 // Lebenspunkte = Summe über alle Tage der Jagd: Tagesanteil × Team an diesem Tag × Kapitel
 function bossMax() {
@@ -1342,6 +1347,7 @@ function newSeason(auto = false) {
 }
 
 function reset() {
+  if (!isAdmin()) { toast('Nur wer das Spiel angelegt hat, kann das Spiel zurücksetzen'); return; }
   if (!confirm('Wirklich ALLES zurücksetzen? Alle Helden starten neu – auf allen Handys.')) return;
   const fresh = freshState();
   for (const k of ['season', 'hall', 'pact', 'resetId']) state[k] = fresh[k];
@@ -1353,6 +1359,7 @@ function reset() {
 }
 // einen Helden auf null setzen (Name und Wochenziel bleiben) – auch für Mitspieler
 function resetHero(id = state.current) {
+  if (!isAdmin()) { toast('Nur wer das Spiel angelegt hat, kann Daten zurücksetzen'); return; }
   const p = state.players[id], mineOne = ownIds().includes(id);
   if (!mineOne && !(sync && connected)) { toast('Dafür musst du online sein'); return; }
   if (!confirm(`Daten von ${p.name} zurücksetzen?\n\n${p.name} startet bei null: Training, Schaden, Ausrüstung, Werte. Alle anderen behalten alles.`)) return;
@@ -1547,11 +1554,11 @@ const fmtTime = t => new Date(t).toLocaleString('de-DE', { weekday: 'short', hou
 const fmtMult = f => '×' + String(Math.round(f * 100) / 100).replace('.', ',');
 
 function renderHeader() {
-  const wk = weekKey();
-  const lead = Math.max(...team().map(p => weekDamage(p, wk)));
+  const lead = Math.max(...team().map(monthDamage));
+  const mon = ['Jan.', 'Feb.', 'März', 'Apr.', 'Mai', 'Juni', 'Juli', 'Aug.', 'Sept.', 'Okt.', 'Nov.', 'Dez.'][+todayStr().slice(5, 7) - 1];
   document.getElementById('players').innerHTML = team().map(p => [idOf(p), p]).map(([id, p]) => `
     <button class="pchip ${id === state.current ? 'on' : ''} ${online() && id !== game.me ? 'other' : ''}" data-act="player" data-arg="${id}">
-      <b>${lead > 0 && weekDamage(p, wk) === lead ? '👑 ' : ''}${awayNow(p) ? AWAY[awayNow(p).why].icon + ' ' : resting(p) ? '💤 ' : ''}${esc(p.name)}</b><small>${num(weekDamage(p, wk))} ⚡</small>
+      <b>${lead > 0 && monthDamage(p) === lead ? '👑 ' : ''}${awayNow(p) ? AWAY[awayNow(p).why].icon + ' ' : resting(p) ? '💤 ' : ''}${esc(p.name)}</b><small>${num(monthDamage(p))} ⚡ · ${mon}</small>
     </button>`).join('');
   renderSyncDot();
   const row = document.getElementById('players'), on = row.querySelector('.pchip.on');
@@ -1943,7 +1950,7 @@ function statsSheet() {
           ${row('👹 Monster erledigt', L.monsters)}${row('📣 Angefeuert', L.cheers)}
           ${Object.entries(STATS).map(([k, st]) => row(`${st.icon} ${st.name}`, p.stats[k])).join('')}
         </div>
-        <button class="btn small ghost reset-hero" data-act="resethero" data-arg="${statsOf}">♻️ Daten von ${esc(p.name)} zurücksetzen</button>
+        ${isAdmin() ? `<button class="btn small ghost reset-hero" data-act="resethero" data-arg="${statsOf}">♻️ Daten von ${esc(p.name)} zurücksetzen</button>` : ''}
       </div>
     </div>`;
 }
@@ -2219,12 +2226,12 @@ function viewProfil() {
           : '<div class="row"><span>🤒 Krank oder 🏖️ Urlaub?</span><span><button class="btn small" data-act="away" data-arg="krank">🤒 Krank</button> <button class="btn small" data-act="away" data-arg="urlaub">🏖️ Urlaub</button></span></div>'}
         <div class="row"><span>🔗 Einladungslink</span><button class="btn small" data-act="share">Teilen</button></div>
         <div class="row"><span>📱 Dieses Gerät abmelden</span><button class="btn small" data-act="leave">Abmelden</button></div>
-        <div class="row"><span>♻️ Meine Daten zurücksetzen</span><button class="btn small" data-act="resetmine">Zurücksetzen</button></div>
+        ${isAdmin() ? '<div class="row"><span>♻️ Meine Daten zurücksetzen</span><button class="btn small" data-act="resetmine">Zurücksetzen</button></div>' : ''}
         ${game.me === 'a' ? '<div class="row"><span>🗄️ Sicherung zurückholen <small>(tägliche Kopie, 7 Tage)</small></span><button class="btn small" data-act="restorebackup">Öffnen</button></div>' : ''}
         ${game.me === 'a' ? '<div class="row"><span>🗑️ Spiel für alle löschen <small>(nur Spiel-Ersteller)</small></span><button class="btn small danger" data-act="deletegame">Löschen</button></div>' : ''}`
       : '<div class="row"><span>📴 Nur auf diesem Gerät</span><button class="btn small" data-act="leave">Online spielen</button></div>'}
     </div>
-    <button class="btn danger" data-act="reset">Spiel zurücksetzen</button>`;
+    ${isAdmin() ? '<button class="btn danger" data-act="reset">Spiel zurücksetzen</button>' : ''}`;
 }
 
 /* ---------- Startbildschirm ---------- */
