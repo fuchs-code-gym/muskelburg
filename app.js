@@ -608,6 +608,19 @@ function leaveGame() {
   try { localStorage.removeItem(GAME_KEY); localStorage.removeItem(KEY); } catch (e) { /* ignorieren */ }
   location.reload();
 }
+// Einladungslink von Hand einfügen – nötig, wenn die App übers Startbildschirm-Symbol läuft
+// (eigener Speicher, getrennt vom Browser, in dem der Link aus dem Chat aufgeht)
+function pasteJoin() {
+  const v = prompt('Einladungslink aus dem Chat hier einfügen:');
+  if (v === null) return;
+  const s = v.trim();
+  const id = (s.match(/jagd=([a-z0-9]+)/) || [])[1] || (/^[a-z0-9]{6,}$/.test(s) ? s : null);
+  if (!id) { toast('Das sieht nicht nach einem Einladungslink aus'); return; }
+  joinId = id;
+  joinInfo = null;
+  history.replaceState(null, '', location.pathname + location.search + '#jagd=' + id);
+  render();
+}
 async function loadJoinInfo() {
   if (!window.MB_SYNC) { window.addEventListener('mb-sync-ready', loadJoinInfo, { once: true }); return; }
   try { joinInfo = (await window.MB_SYNC.getGame(joinId)) || { missing: true }; } catch (e) { joinInfo = { error: true }; }
@@ -1516,6 +1529,7 @@ const actions = {
   away: why => setAway(why),
   restorebackup: () => restoreFromBackup(),
   restorejoin: () => restoreFromBackup(joinId),
+  pastejoin: pasteJoin,
   together: arg => toggleTogether(arg),
   react,
   recapshare: () => shareRecap(),
@@ -2276,7 +2290,8 @@ function viewSetup() {
       ${nameField}
       <input id="setup-code" class="field" maxlength="40" placeholder="🔒 Startcode" autocomplete="off" autocapitalize="none">
       <button class="btn primary big" data-act="create">Jagd starten</button>
-      <p class="hint">Du hast einen Einladungslink bekommen? Dann öffne einfach den Link.</p>
+      <p class="hint">Du hast einen Einladungslink bekommen oder spielst schon mit?</p>
+      <button class="btn" data-act="pastejoin">🔗 Einladungslink einfügen</button>
       <button class="btn ghost" data-act="local">Nur auf diesem Gerät ausprobieren</button>
       <button class="btn small ghost" data-act="intro">📖 So funktioniert's</button>
     </section>`;

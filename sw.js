@@ -1,5 +1,5 @@
 // Offline-Unterstützung: immer erst frisch aus dem Netz, bei Funkloch aus dem Cache
-const CACHE = 'hantelhelden-54';
+const CACHE = 'hantelhelden-55';
 const FILES = ['./', './index.html', './style.css', './app.js', './sync.js', './manifest.webmanifest', './hh-icon.svg', './hh-icon-192.png', './hh-icon-512.png'];
 
 self.addEventListener('install', e => {
